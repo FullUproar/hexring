@@ -52,6 +52,7 @@ export interface GameState {
 }
 
 export type WinCondition = "first_to_kills" | "last_standing" | "eliminate_all";
+export type StartLayout = "clustered" | "spread";
 
 export interface GameConfig {
   // Board geometry
@@ -61,6 +62,7 @@ export interface GameConfig {
 
   // Pieces
   piecesPerPlayer: number;
+  startLayout: StartLayout;
 
   // Win condition
   winCondition: WinCondition;
@@ -87,6 +89,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   killboxRadius: 1,
   fortressRing: 2,
   piecesPerPlayer: 5,
+  startLayout: "clustered",
   winCondition: "first_to_kills",
   killTarget: 3,
   pushEnabled: true,

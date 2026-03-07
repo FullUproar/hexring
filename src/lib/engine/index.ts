@@ -19,6 +19,7 @@ export type {
   ChainHop,
   Winner,
   WinCondition,
+  StartLayout,
   GameState,
   GameConfig,
 } from "./types";

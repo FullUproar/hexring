@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { GameConfig, WinCondition } from "@/lib/engine";
+import type { GameConfig, WinCondition, StartLayout } from "@/lib/engine";
 import { DEFAULT_CONFIG } from "@/lib/engine";
 
 interface SettingsPanelProps {
@@ -116,6 +116,17 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
         max={12}
         onChange={(v) => set("piecesPerPlayer", v)}
       />
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span className="text-gray-300">Start layout</span>
+        <select
+          value={draft.startLayout}
+          onChange={(e) => set("startLayout", e.target.value as StartLayout)}
+          className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5 text-xs"
+        >
+          <option value="clustered">Clustered (grouped)</option>
+          <option value="spread">Spread (interleaved)</option>
+        </select>
+      </label>
 
       {/* Win condition */}
       <div className="text-xs text-gray-500 uppercase tracking-wider mt-2">

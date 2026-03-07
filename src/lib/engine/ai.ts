@@ -35,8 +35,7 @@ export function aiChooseMove(
 
   orderMoves(moves);
 
-  let bestScore = -Infinity;
-  let bestMoves: Move[] = [];
+  const scored: { move: Move; score: number }[] = [];
   let alpha = -Infinity;
   const beta = Infinity;
 
@@ -61,18 +60,39 @@ export function aiChooseMove(
     }
 
     restoreState(state, snap);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMoves = [m];
-    } else if (score === bestScore) {
-      bestMoves.push(m);
-    }
-    alpha = Math.max(alpha, bestScore);
+    scored.push({ move: m, score });
+    alpha = Math.max(alpha, score);
   }
 
-  // Randomly pick among equally-scored top moves for variety
-  return bestMoves[Math.floor(Math.random() * bestMoves.length)] || null;
+  // Softmax-style selection: pick from top moves with weighted randomness
+  // Higher difficulty = tighter temperature (more deterministic but still varied)
+  return softmaxPick(scored, difficulty);
+}
+
+function softmaxPick(
+  scored: { move: Move; score: number }[],
+  difficulty: AIDifficulty
+): Move | null {
+  if (!scored.length) return null;
+
+  // Temperature: lower = more deterministic, higher = more random
+  // Scale so higher difficulty is tighter
+  const temps: Record<AIDifficulty, number> = {
+    1: 200, 2: 120, 3: 60, 4: 30, 5: 15, 6: 8,
+  };
+  const temp = temps[difficulty];
+
+  // Shift scores so the max is 0 (prevents overflow in exp)
+  const maxScore = Math.max(...scored.map((s) => s.score));
+  const weights = scored.map((s) => Math.exp((s.score - maxScore) / temp));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+  let r = Math.random() * totalWeight;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return scored[i].move;
+  }
+  return scored[scored.length - 1].move;
 }
 
 function drawScore(game: Game, state: GameState, aiPlayer: 0 | 1): number {

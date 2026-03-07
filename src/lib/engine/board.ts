@@ -19,14 +19,28 @@ export class Board {
       hexRing(config.fortressRing).map((h) => hexKey(h.q, h.r))
     );
 
-    // Starting positions: players on opposite sides of outer ring
+    // Starting positions
     const ring = hexRing(config.boardRadius);
     const half = Math.floor(ring.length / 2);
     const p0: Hex[] = [];
     const p1: Hex[] = [];
-    for (let i = 0; i < config.piecesPerPlayer; i++) {
-      p0.push(ring[(i * 2) % ring.length]);
-      p1.push(ring[(half + i * 2) % ring.length]);
+    const n = config.piecesPerPlayer;
+
+    if (config.startLayout === "spread") {
+      // Spread: alternate around the ring (enemies interleaved)
+      for (let i = 0; i < n; i++) {
+        p0.push(ring[(i * 2) % ring.length]);
+        p1.push(ring[(half + i * 2) % ring.length]);
+      }
+    } else {
+      // Clustered (default): each player's pieces grouped on opposite sides
+      // Center each group on their half of the ring
+      const groupStart0 = Math.floor(half / 2 - n / 2);
+      const groupStart1 = half + Math.floor(half / 2 - n / 2);
+      for (let i = 0; i < n; i++) {
+        p0.push(ring[(groupStart0 + i) % ring.length]);
+        p1.push(ring[(groupStart1 + i) % ring.length]);
+      }
     }
     this.startPositions = [p0, p1];
   }

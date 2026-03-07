@@ -192,23 +192,29 @@ function evaluate(game: Game, state: GameState, aiPlayer: 0 | 1): number {
   score += (myPieces.length - oppPieces.length) * 200;
 
   // Kill progress bonus — reward getting closer to the kill target
+  // urgency: how close we are to winning (1.0 = one kill away, 0.0 = just started)
   const wc = game.board.config.winCondition;
+  const myKillsNeeded = kt - oppLost;
+  const theirKillsNeeded = kt - myLost;
+  const urgency = Math.max(0, 1 - (myKillsNeeded - 1) / Math.max(kt, 1));
+
   if (wc === "first_to_kills") {
-    score += oppLost * 80; // reward kills made
-    score -= myLost * 80; // penalize losses taken
-    // Bonus for being close to winning
-    if (oppLost === kt - 1) score += 300;
+    score += oppLost * 100; // reward kills made
+    score -= myLost * 100; // penalize losses taken
+    // Bonus for being close to winning (but not when kt=1 and no kills yet)
+    if (myKillsNeeded === 1 && oppLost > 0) score += 400;
   } else {
-    // For other win conditions, still reward having more pieces
     score += (myPieces.length - oppPieces.length) * 50;
   }
 
-  // Positional evaluation
+  // Positional evaluation — scale threat weights by urgency
   for (const p of myPieces) {
-    score += evalPiecePosition(game, state, p, opp, myPieces, oppPieces);
+    score += evalPiecePosition(game, state, p, opp, myPieces, oppPieces, urgency);
   }
   for (const p of oppPieces) {
-    score -= evalPiecePosition(game, state, p, aiPlayer, oppPieces, myPieces);
+    // Opponent's urgency for their threats
+    const theirUrgency = Math.max(0, 1 - (theirKillsNeeded - 1) / Math.max(kt, 1));
+    score -= evalPiecePosition(game, state, p, aiPlayer, oppPieces, myPieces, theirUrgency);
   }
 
   return score;
@@ -220,9 +226,14 @@ function evalPiecePosition(
   piece: Piece,
   enemyPlayer: 0 | 1,
   _allies: Piece[],
-  enemies: Piece[]
+  enemies: Piece[],
+  urgency: number
 ): number {
   let score = 0;
+
+  // Offensive multiplier: scales up when close to winning
+  // urgency=0 → 1x, urgency=1 → 3x (one kill from victory = very aggressive)
+  const offMult = 1 + urgency * 2;
 
   // Jump threats — can we jump-capture an enemy?
   for (const [dq, dr] of DIRS) {
@@ -239,7 +250,7 @@ function evalPiecePosition(
       game.board.onBoard(lq, lr) &&
       !Object.values(state.pieces).some((p) => p.q === lq && p.r === lr)
     ) {
-      score += 40;
+      score += 40 * offMult;
     }
   }
 
@@ -257,21 +268,21 @@ function evalPiecePosition(
       if (game.board.config.fortressBlocksPush && game.board.isFortress(nq, nr)) continue;
       const offBoard = !game.board.onBoard(pq, pr);
       const intoKillbox = !offBoard && game.board.isKillbox(pq, pr);
-      if (offBoard && game.board.config.pushOffBoard) score += 60;
-      else if (intoKillbox && game.board.config.pushIntoKillbox) score += 50;
+      if (offBoard && game.board.config.pushOffBoard) score += 60 * offMult;
+      else if (intoKillbox && game.board.config.pushIntoKillbox) score += 50 * offMult;
     }
   }
 
-  // Distance to enemies
+  // Distance to enemies — closer is better when urgent
   let minD = 99;
   for (const op of enemies) {
     minD = Math.min(minD, hexDist(piece, op));
   }
-  if (minD === 2) score += 15;
-  else if (minD === 1) score += 8;
-  else score -= minD * 3;
+  if (minD === 2) score += 15 * offMult;
+  else if (minD === 1) score += 8 * offMult;
+  else score -= minD * (3 + urgency * 5);
 
-  // Edge penalty
+  // Edge penalty — more dangerous when opponent is aggressive
   if (hexDist(piece, { q: 0, r: 0 }) === game.board.config.boardRadius) {
     score -= 8;
   }
@@ -331,18 +342,16 @@ function evalPiecePosition(
   return score;
 }
 
+function moveOrderScore(m: Move): number {
+  if (m.type === "CHAIN_JUMP") return (m.enemyKills || 0) * 3 + (m.sacrifice ? -1 : 0);
+  if (m.type === "JUMP" && m.isCapture) return 2 + (m.sacrifice ? -1 : 0);
+  if (m.type === "PUSH") return 2; // pushes are kills (off-board/killbox) — prioritize them
+  if (m.type === "JUMP") return 0;
+  return 0;
+}
+
 function orderMoves(moves: Move[]): void {
-  moves.sort((a, b) => {
-    const sa =
-      (a.type === "CHAIN_JUMP" ? (a.enemyKills || 0) * 3 : 0) +
-      (a.type === "JUMP" && a.isCapture ? 2 : 0) +
-      (a.type === "PUSH" ? 1 : 0);
-    const sb =
-      (b.type === "CHAIN_JUMP" ? (b.enemyKills || 0) * 3 : 0) +
-      (b.type === "JUMP" && b.isCapture ? 2 : 0) +
-      (b.type === "PUSH" ? 1 : 0);
-    return sb - sa;
-  });
+  moves.sort((a, b) => moveOrderScore(b) - moveOrderScore(a));
 }
 
 function restoreState(state: GameState, snap: GameState): void {

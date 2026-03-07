@@ -36,7 +36,7 @@ export function aiChooseMove(
   orderMoves(moves);
 
   let bestScore = -Infinity;
-  let bestMove: Move | null = null;
+  let bestMoves: Move[] = [];
   let alpha = -Infinity;
   const beta = Infinity;
 
@@ -54,10 +54,8 @@ export function aiChooseMove(
       const h = pcs.join("|") + ":" + ((1 - aiPlayer) as 0 | 1);
       const reps = state.positionHistory[h] || 0;
       if (reps >= 2) {
-        // This move would trigger threefold — treat like a draw
         score = drawScore(game, state, aiPlayer);
       } else if (reps >= 1) {
-        // Approaching repetition — penalize
         score -= 150;
       }
     }
@@ -66,12 +64,15 @@ export function aiChooseMove(
 
     if (score > bestScore) {
       bestScore = score;
-      bestMove = m;
+      bestMoves = [m];
+    } else if (score === bestScore) {
+      bestMoves.push(m);
     }
     alpha = Math.max(alpha, bestScore);
   }
 
-  return bestMove;
+  // Randomly pick among equally-scored top moves for variety
+  return bestMoves[Math.floor(Math.random() * bestMoves.length)] || null;
 }
 
 function drawScore(game: Game, state: GameState, aiPlayer: 0 | 1): number {
@@ -203,7 +204,7 @@ function evalPiecePosition(
 ): number {
   let score = 0;
 
-  // Jump threats
+  // Jump threats — can we jump-capture an enemy?
   for (const [dq, dr] of DIRS) {
     const nq = piece.q + dq;
     const nr = piece.r + dr;
@@ -219,6 +220,25 @@ function evalPiecePosition(
       !Object.values(state.pieces).some((p) => p.q === lq && p.r === lr)
     ) {
       score += 40;
+    }
+  }
+
+  // Push threats — can we push an enemy off the board or into killbox?
+  if (game.board.config.pushEnabled) {
+    for (const [dq, dr] of DIRS) {
+      const nq = piece.q + dq;
+      const nr = piece.r + dr;
+      const pq = nq + dq;
+      const pr = nr + dr;
+      const target = Object.values(state.pieces).find(
+        (p) => p.q === nq && p.r === nr && p.player === enemyPlayer
+      );
+      if (!target) continue;
+      if (game.board.config.fortressBlocksPush && game.board.isFortress(nq, nr)) continue;
+      const offBoard = !game.board.onBoard(pq, pr);
+      const intoKillbox = !offBoard && game.board.isKillbox(pq, pr);
+      if (offBoard && game.board.config.pushOffBoard) score += 60;
+      else if (intoKillbox && game.board.config.pushIntoKillbox) score += 50;
     }
   }
 
@@ -239,7 +259,7 @@ function evalPiecePosition(
   // Fortress bonus
   if (game.board.isFortress(piece.q, piece.r)) score += 3;
 
-  // Vulnerability
+  // Jump vulnerability — enemy can jump-capture this piece
   for (const [dq, dr] of DIRS) {
     const aq = piece.q + dq;
     const ar = piece.r + dr;
@@ -255,6 +275,36 @@ function evalPiecePosition(
       !Object.values(state.pieces).some((p) => p.q === lq && p.r === lr)
     ) {
       score -= 25;
+    }
+  }
+
+  // Push vulnerability — enemy can push this piece off the board or into killbox
+  const cfg = game.board.config;
+  if (cfg.pushEnabled) {
+    for (const [dq, dr] of DIRS) {
+      // Enemy at (piece.q - dq, piece.r - dr) could push this piece to (piece.q + dq, piece.r + dr)
+      const eq = piece.q - dq;
+      const er = piece.r - dr;
+      const pushTo_q = piece.q + dq;
+      const pushTo_r = piece.r + dr;
+
+      // Is there an enemy adjacent who could push us?
+      const attacker = Object.values(state.pieces).find(
+        (p) => p.q === eq && p.r === er && p.player === enemyPlayer
+      );
+      if (!attacker) continue;
+
+      // Can't be pushed from fortress
+      if (cfg.fortressBlocksPush && game.board.isFortress(piece.q, piece.r)) continue;
+
+      const offBoard = !game.board.onBoard(pushTo_q, pushTo_r);
+      const intoKillbox = !offBoard && game.board.isKillbox(pushTo_q, pushTo_r);
+
+      if (offBoard && cfg.pushOffBoard) {
+        score -= 120; // very dangerous — instant death
+      } else if (intoKillbox && cfg.pushIntoKillbox) {
+        score -= 100; // pushed into killbox — death
+      }
     }
   }
 

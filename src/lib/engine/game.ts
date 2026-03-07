@@ -191,7 +191,10 @@ export class Game {
       visited: Set<number>,
       hops: ChainHop[]
     ) => {
-      let extended = false;
+      // Record current position as a valid chain stop
+      if (hops.length >= 2) {
+        chainResults.push(hops);
+      }
       for (const [dq, dr] of DIRS) {
         const nq = q + dq;
         const nr = r + dr;
@@ -210,7 +213,6 @@ export class Game {
           continue;
         if (hops.length >= 5) continue;
 
-        extended = true;
         const nv = new Set(visited);
         nv.add(jid);
         const newHops: ChainHop[] = [
@@ -224,9 +226,6 @@ export class Game {
         } else {
           chainDFS(lq, lr, nv, newHops);
         }
-      }
-      if (!extended && hops.length >= 2) {
-        chainResults.push(hops);
       }
     };
 

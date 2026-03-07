@@ -246,16 +246,15 @@ export default function HexBoard({
         const [cx, cy] = hexToPixel(p.q, p.r, HEX_SIZE);
         const color = p.player === 0 ? "#e74c3c" : "#3498db";
         return (
-          <g key={`piece-${p.id}`}>
+          <g
+            key={`piece-${p.id}`}
+            transform={`translate(${cx}, ${cy})`}
+            style={{ transition: "transform 0.3s ease-in-out" }}
+          >
+            <circle cx={1} cy={2} r={11} fill="rgba(0,0,0,0.4)" />
             <circle
-              cx={cx + 1}
-              cy={cy + 2}
-              r={11}
-              fill="rgba(0,0,0,0.4)"
-            />
-            <circle
-              cx={cx}
-              cy={cy}
+              cx={0}
+              cy={0}
               r={10}
               fill={color}
               stroke="#111"

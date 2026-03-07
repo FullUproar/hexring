@@ -6,10 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "party:dev": "npx partykit dev",
+    "party:deploy": "npx partykit deploy"
   },
   "dependencies": {
     "next": "16.1.6",
+    "partysocket": "^1.1.16",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
@@ -20,6 +23,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "partykit": "^0.0.115",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -413,18 +413,26 @@ export default function GamePage() {
           </div>
 
           {/* Buttons */}
-          <button
-            onClick={handleNewGame}
-            className="w-full py-2.5 text-base cursor-pointer border-2 border-[#555] rounded-md bg-[#1a1a2e] text-gray-200 hover:bg-[#2d3a5c] hover:border-gray-400 transition-all"
+          <div className="flex gap-2">
+            <button
+              onClick={handleNewGame}
+              className="flex-1 py-2.5 text-base cursor-pointer border-2 border-[#555] rounded-md bg-[#1a1a2e] text-gray-200 hover:bg-[#2d3a5c] hover:border-gray-400 transition-all"
+            >
+              New Game
+            </button>
+            <button
+              onClick={handleUndo}
+              className="flex-1 py-2.5 text-base cursor-pointer border-2 border-[#555] rounded-md bg-[#1a1a2e] text-gray-200 hover:bg-[#2d3a5c] hover:border-gray-400 transition-all"
+            >
+              Undo
+            </button>
+          </div>
+          <a
+            href={`/play/${Math.random().toString(36).slice(2, 8)}`}
+            className="w-full py-2.5 text-base text-center cursor-pointer border-2 border-emerald-700 rounded-md bg-[#1a1a2e] text-emerald-400 hover:bg-emerald-900/30 hover:border-emerald-500 transition-all block"
           >
-            New Game
-          </button>
-          <button
-            onClick={handleUndo}
-            className="w-full py-2.5 text-base cursor-pointer border-2 border-[#555] rounded-md bg-[#1a1a2e] text-gray-200 hover:bg-[#2d3a5c] hover:border-gray-400 transition-all"
-          >
-            Undo
-          </button>
+            Play Online
+          </a>
 
           {/* Legend */}
           <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-3 text-xs leading-relaxed text-gray-400">

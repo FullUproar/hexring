@@ -88,10 +88,21 @@ export class Game {
   checkWinner(state: GameState): Winner {
     const r = this.pieceCount(state, 0);
     const b = this.pieceCount(state, 1);
+    const pp = this.board.config.piecesPerPlayer;
     const kt = this.board.config.killTarget;
 
-    if (r === 0 || 5 - r >= kt) return 1;
-    if (b === 0 || 5 - b >= kt) return 0;
+    const redLost = pp - r;
+    const blueLost = pp - b;
+
+    // Both eliminated enough — compare who has more
+    if (redLost >= kt && blueLost >= kt) {
+      if (r > b) return 0;
+      if (b > r) return 1;
+      return "draw";
+    }
+    // One side lost enough pieces
+    if (r === 0 || redLost >= kt) return 1;
+    if (b === 0 || blueLost >= kt) return 0;
     return null;
   }
 

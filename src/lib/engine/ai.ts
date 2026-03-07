@@ -120,10 +120,16 @@ function evaluate(game: Game, state: GameState, aiPlayer: 0 | 1): number {
   );
   const kt = game.board.config.killTarget;
 
-  if (oppPieces.length === 0 || game.board.config.piecesPerPlayer - oppPieces.length >= kt)
-    return 9999;
-  if (myPieces.length === 0 || game.board.config.piecesPerPlayer - myPieces.length >= kt)
-    return -9999;
+  const pp = game.board.config.piecesPerPlayer;
+  const myLost = pp - myPieces.length;
+  const oppLost = pp - oppPieces.length;
+
+  // Both crossed threshold — compare piece counts
+  if (myLost >= kt && oppLost >= kt) {
+    return (myPieces.length - oppPieces.length) * 200;
+  }
+  if (oppPieces.length === 0 || oppLost >= kt) return 9999;
+  if (myPieces.length === 0 || myLost >= kt) return -9999;
 
   let score = 0;
 

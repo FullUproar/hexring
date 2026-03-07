@@ -43,7 +43,25 @@ export function aiChooseMove(
   for (const m of moves) {
     const snap = game.snapshot(state);
     game.applyMove(state, m);
-    const score = minimax(game, state, depth - 1, alpha, beta, false, aiPlayer);
+
+    let score = minimax(game, state, depth - 1, alpha, beta, false, aiPlayer);
+
+    // Penalize moves that lead toward threefold repetition
+    if (game.board.config.threefoldRepetition) {
+      const pcs = Object.values(state.pieces)
+        .map((p) => `${p.player},${p.q},${p.r}`)
+        .sort();
+      const h = pcs.join("|") + ":" + ((1 - aiPlayer) as 0 | 1);
+      const reps = state.positionHistory[h] || 0;
+      if (reps >= 2) {
+        // This move would trigger threefold — treat like a draw
+        score = drawScore(game, state, aiPlayer);
+      } else if (reps >= 1) {
+        // Approaching repetition — penalize
+        score -= 150;
+      }
+    }
+
     restoreState(state, snap);
 
     if (score > bestScore) {
@@ -54,6 +72,22 @@ export function aiChooseMove(
   }
 
   return bestMove;
+}
+
+function drawScore(game: Game, state: GameState, aiPlayer: 0 | 1): number {
+  // Evaluate whether a draw is good or bad for the AI
+  const opp = (1 - aiPlayer) as 0 | 1;
+  const my = Object.values(state.pieces).filter((p) => p.player === aiPlayer).length;
+  const their = Object.values(state.pieces).filter((p) => p.player === opp).length;
+  const pp = game.board.config.piecesPerPlayer;
+  const myKills = pp - their;
+  const theirKills = pp - my;
+  // If AI is ahead on kills or pieces, draw is bad — avoid it
+  if (myKills > theirKills || my > their) return -800;
+  // If behind, draw is an escape
+  if (theirKills > myKills || their > my) return 200;
+  // Even — slight penalty to encourage decisive play
+  return -200;
 }
 
 function minimax(
@@ -68,7 +102,7 @@ function minimax(
   const w = game.checkWinner(state);
   if (w === aiPlayer) return 9999 + depth;
   if (w === (1 - aiPlayer)) return -9999 - depth;
-  if (w === "draw") return 0;
+  if (w === "draw") return drawScore(game, state, aiPlayer);
 
   if (depth === 0) return evaluate(game, state, aiPlayer);
 
@@ -135,6 +169,18 @@ function evaluate(game: Game, state: GameState, aiPlayer: 0 | 1): number {
 
   // Material
   score += (myPieces.length - oppPieces.length) * 200;
+
+  // Kill progress bonus — reward getting closer to the kill target
+  const wc = game.board.config.winCondition;
+  if (wc === "first_to_kills") {
+    score += oppLost * 80; // reward kills made
+    score -= myLost * 80; // penalize losses taken
+    // Bonus for being close to winning
+    if (oppLost === kt - 1) score += 300;
+  } else {
+    // For other win conditions, still reward having more pieces
+    score += (myPieces.length - oppPieces.length) * 50;
+  }
 
   // Positional evaluation
   for (const p of myPieces) {

@@ -51,12 +51,35 @@ export interface GameState {
   turnCount: number;
 }
 
+export type WinCondition = "first_to_kills" | "last_standing" | "eliminate_all";
+
 export interface GameConfig {
+  // Board geometry
   boardRadius: number;
   killboxRadius: number;
   fortressRing: number;
+
+  // Pieces
   piecesPerPlayer: number;
+
+  // Win condition
+  winCondition: WinCondition;
   killTarget: number;
+
+  // Rules toggles
+  pushEnabled: boolean;
+  pushOffBoard: boolean;
+  pushIntoKillbox: boolean;
+  fortressBlocksPush: boolean;
+  fortressBlocksJump: boolean;
+  sacrificeJumps: boolean;
+  chainJumps: boolean;
+  maxChainLength: number;
+  jumpOverFriendly: boolean;
+  jumpOverEnemy: boolean;
+  captureOnJump: boolean;
+  threefoldRepetition: boolean;
+  turnLimit: number; // 0 = no limit
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -64,5 +87,19 @@ export const DEFAULT_CONFIG: GameConfig = {
   killboxRadius: 1,
   fortressRing: 2,
   piecesPerPlayer: 5,
+  winCondition: "first_to_kills",
   killTarget: 3,
+  pushEnabled: true,
+  pushOffBoard: true,
+  pushIntoKillbox: true,
+  fortressBlocksPush: true,
+  fortressBlocksJump: false,
+  sacrificeJumps: true,
+  chainJumps: true,
+  maxChainLength: 5,
+  jumpOverFriendly: true,
+  jumpOverEnemy: true,
+  captureOnJump: true,
+  threefoldRepetition: true,
+  turnLimit: 0,
 };

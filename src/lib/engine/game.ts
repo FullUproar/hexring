@@ -89,8 +89,25 @@ export class Game {
     const r = this.pieceCount(state, 0);
     const b = this.pieceCount(state, 1);
     const pp = this.board.config.piecesPerPlayer;
+    const wc = this.board.config.winCondition;
     const kt = this.board.config.killTarget;
 
+    if (wc === "eliminate_all") {
+      if (r === 0 && b === 0) return "draw";
+      if (r === 0) return 1;
+      if (b === 0) return 0;
+      return null;
+    }
+
+    if (wc === "last_standing") {
+      // Win when opponent has only 1 piece left
+      if (r <= 1 && b <= 1) return "draw";
+      if (r <= 1) return 1;
+      if (b <= 1) return 0;
+      return null;
+    }
+
+    // first_to_kills (default)
     const redLost = pp - r;
     const blueLost = pp - b;
 
@@ -127,6 +144,7 @@ export class Game {
   genMoves(state: GameState, piece: Piece): Move[] {
     const moves: Move[] = [];
     const pid = piece.player;
+    const cfg = this.board.config;
 
     for (const [dq, dr] of DIRS) {
       const nq = piece.q + dq;
@@ -141,16 +159,19 @@ export class Game {
       }
 
       // PUSH — shove adjacent enemy
-      if (occ.length && occ[0].player !== pid) {
+      if (cfg.pushEnabled && occ.length && occ[0].player !== pid) {
         const target = occ[0];
-        if (!this.board.isFortress(nq, nr)) {
+        const blocked = cfg.fortressBlocksPush && this.board.isFortress(nq, nr);
+        if (!blocked) {
           const pq = nq + dq;
           const pr = nr + dr;
-          if (
-            !this.board.onBoard(pq, pr) ||
-            this.board.isKillbox(pq, pr) ||
-            !this.occupied(state, pq, pr)
-          ) {
+          const offBoard = !this.board.onBoard(pq, pr);
+          const intoKillbox = !offBoard && this.board.isKillbox(pq, pr);
+          const pushable =
+            (offBoard && cfg.pushOffBoard) ||
+            (intoKillbox && cfg.pushIntoKillbox) ||
+            (!offBoard && !intoKillbox && !this.occupied(state, pq, pr));
+          if (pushable) {
             moves.push({
               type: "PUSH",
               destQ: nq,
@@ -165,85 +186,106 @@ export class Game {
 
       // JUMP — leap over adjacent piece
       if (occ.length) {
-        const lq = nq + dq;
-        const lr = nr + dr;
-        if (this.board.onBoard(lq, lr) && !this.occupied(state, lq, lr)) {
-          const isEnemy = occ[0].player !== pid;
-          moves.push({
-            type: "JUMP",
-            destQ: lq,
-            destR: lr,
-            pieceId: piece.id,
-            targetId: occ[0].id,
-            isCapture: isEnemy,
-            jumpOver: [nq, nr],
-            sacrifice: this.board.isKillbox(lq, lr),
-          });
+        const isEnemy = occ[0].player !== pid;
+        const canJumpThis =
+          (isEnemy && cfg.jumpOverEnemy) || (!isEnemy && cfg.jumpOverFriendly);
+        if (canJumpThis) {
+          const lq = nq + dq;
+          const lr = nr + dr;
+          const landable = this.board.onBoard(lq, lr) && !this.occupied(state, lq, lr);
+          const fortressBlocked = cfg.fortressBlocksJump && this.board.isFortress(nq, nr);
+          if (landable && !fortressBlocked) {
+            const isSacrifice = this.board.isKillbox(lq, lr);
+            if (!isSacrifice || cfg.sacrificeJumps) {
+              const capture = isEnemy && cfg.captureOnJump;
+              moves.push({
+                type: "JUMP",
+                destQ: lq,
+                destR: lr,
+                pieceId: piece.id,
+                targetId: occ[0].id,
+                isCapture: capture,
+                jumpOver: [nq, nr],
+                sacrifice: isSacrifice,
+              });
+            }
+          }
         }
       }
     }
 
     // CHAIN JUMP (DFS)
-    const chainResults: ChainHop[][] = [];
-    const chainDFS = (
-      q: number,
-      r: number,
-      visited: Set<number>,
-      hops: ChainHop[]
-    ) => {
-      // Record current position as a valid chain stop
-      if (hops.length >= 2) {
-        chainResults.push(hops);
-      }
-      for (const [dq, dr] of DIRS) {
-        const nq = q + dq;
-        const nr = r + dr;
-        const lq = nq + dq;
-        const lr = nr + dr;
-        if (!this.board.onBoard(nq, nr) || !this.board.onBoard(lq, lr))
-          continue;
-        const occ = this.piecesAt(state, nq, nr);
-        if (!occ.length) continue;
-        const jid = occ[0].id;
-        if (visited.has(jid)) continue;
-        if (
-          this.occupied(state, lq, lr) &&
-          !(lq === piece.q && lr === piece.r)
-        )
-          continue;
-        if (hops.length >= 5) continue;
-
-        const nv = new Set(visited);
-        nv.add(jid);
-        const newHops: ChainHop[] = [
-          ...hops,
-          { q: lq, r: lr, targetId: jid, isEnemy: occ[0].player !== pid },
-        ];
-
-        if (this.board.isKillbox(lq, lr)) {
-          // Sacrifice — ends chain
-          if (newHops.length >= 2) chainResults.push(newHops);
-        } else {
-          chainDFS(lq, lr, nv, newHops);
+    if (cfg.chainJumps) {
+      const maxLen = cfg.maxChainLength;
+      const chainResults: ChainHop[][] = [];
+      const chainDFS = (
+        q: number,
+        r: number,
+        visited: Set<number>,
+        hops: ChainHop[]
+      ) => {
+        // Record current position as a valid chain stop
+        if (hops.length >= 2) {
+          chainResults.push(hops);
         }
+        for (const [dq, dr] of DIRS) {
+          const nq = q + dq;
+          const nr = r + dr;
+          const lq = nq + dq;
+          const lr = nr + dr;
+          if (!this.board.onBoard(nq, nr) || !this.board.onBoard(lq, lr))
+            continue;
+          const occ = this.piecesAt(state, nq, nr);
+          if (!occ.length) continue;
+          const isEnemy = occ[0].player !== pid;
+          const canJumpThis =
+            (isEnemy && cfg.jumpOverEnemy) || (!isEnemy && cfg.jumpOverFriendly);
+          if (!canJumpThis) continue;
+          if (cfg.fortressBlocksJump && this.board.isFortress(nq, nr)) continue;
+          const jid = occ[0].id;
+          if (visited.has(jid)) continue;
+          if (
+            this.occupied(state, lq, lr) &&
+            !(lq === piece.q && lr === piece.r)
+          )
+            continue;
+          if (hops.length >= maxLen) continue;
+
+          const nv = new Set(visited);
+          nv.add(jid);
+          const newHops: ChainHop[] = [
+            ...hops,
+            { q: lq, r: lr, targetId: jid, isEnemy },
+          ];
+
+          if (this.board.isKillbox(lq, lr)) {
+            // Sacrifice — ends chain
+            if (cfg.sacrificeJumps && newHops.length >= 2)
+              chainResults.push(newHops);
+          } else {
+            chainDFS(lq, lr, nv, newHops);
+          }
+        }
+      };
+
+      chainDFS(piece.q, piece.r, new Set(), []);
+
+      for (const chain of chainResults) {
+        const last = chain[chain.length - 1];
+        const enemyKills = cfg.captureOnJump
+          ? chain.filter((h) => h.isEnemy).length
+          : 0;
+        moves.push({
+          type: "CHAIN_JUMP",
+          destQ: last.q,
+          destR: last.r,
+          pieceId: piece.id,
+          chainTargets: chain.map((h) => h.targetId),
+          chainHops: chain,
+          enemyKills,
+          sacrifice: this.board.isKillbox(last.q, last.r),
+        });
       }
-    };
-
-    chainDFS(piece.q, piece.r, new Set(), []);
-
-    for (const chain of chainResults) {
-      const last = chain[chain.length - 1];
-      const enemyKills = chain.filter((h) => h.isEnemy).length;
-      moves.push({
-        type: "CHAIN_JUMP",
-        destQ: last.q,
-        destR: last.r,
-        pieceId: piece.id,
-        chainTargets: chain.map((h) => h.targetId),
-        chainHops: chain,
-        enemyKills,
-        sacrifice: this.board.isKillbox(last.q, last.r),
-      });
     }
 
     return moves;
@@ -327,29 +369,44 @@ export class Game {
     // Switch player
     this.state.currentPlayer = (1 - this.state.currentPlayer) as 0 | 1;
 
+    // Check turn limit
+    const tl = this.board.config.turnLimit;
+    if (tl > 0 && this.state.turnCount >= tl) {
+      const r = this.pieceCount(this.state, 0);
+      const b = this.pieceCount(this.state, 1);
+      const tw: Winner = r > b ? 0 : b > r ? 1 : "draw";
+      this.state.winner = tw;
+      this.state.winReason = `Turn limit (${tl}) — ${tw === 0 ? "Red wins!" : tw === 1 ? "Blue wins!" : "Draw!"}`;
+      return { winner: tw, winReason: this.state.winReason };
+    }
+
     // Check threefold repetition
-    const rep = this.checkThreefoldRepetition(this.state);
-    if (rep !== null) {
-      this.state.winner = rep;
-      const reason =
-        rep === 0
-          ? "Threefold repetition — Red wins!"
-          : rep === 1
-            ? "Threefold repetition — Blue wins!"
-            : "Threefold repetition — Draw!";
-      this.state.winReason = reason;
-      return { winner: rep, winReason: reason };
+    if (this.board.config.threefoldRepetition) {
+      const rep = this.checkThreefoldRepetition(this.state);
+      if (rep !== null) {
+        this.state.winner = rep;
+        const reason =
+          rep === 0
+            ? "Threefold repetition — Red wins!"
+            : rep === 1
+              ? "Threefold repetition — Blue wins!"
+              : "Threefold repetition — Draw!";
+        this.state.winReason = reason;
+        return { winner: rep, winReason: reason };
+      }
     }
 
     // Check if next player has moves; if not, skip
     const nextMoves = this.allMoves(this.state);
     if (!nextMoves.length) {
       this.state.currentPlayer = (1 - this.state.currentPlayer) as 0 | 1;
-      const rep2 = this.checkThreefoldRepetition(this.state);
-      if (rep2 !== null) {
-        this.state.winner = rep2;
-        this.state.winReason = "Threefold repetition!";
-        return { winner: rep2, winReason: this.state.winReason };
+      if (this.board.config.threefoldRepetition) {
+        const rep2 = this.checkThreefoldRepetition(this.state);
+        if (rep2 !== null) {
+          this.state.winner = rep2;
+          this.state.winReason = "Threefold repetition!";
+          return { winner: rep2, winReason: this.state.winReason };
+        }
       }
     }
 

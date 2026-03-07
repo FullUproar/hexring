@@ -9,18 +9,8 @@ import {
   hexKey,
   parseKey,
 } from "@/lib/engine";
-import type { Piece, Move } from "@/lib/engine";
-
-const HEX_SIZE = 30;
-const BOARD_RADIUS = 4;
-const WIDTH = 580;
-const HEIGHT = 530;
-
-const boardCells = hexDisk(BOARD_RADIUS);
-const killboxCells = hexDisk(1);
-const fortressCells = new Set(
-  hexRing(2).map((h) => hexKey(h.q, h.r))
-);
+import type { Piece, Move, GameConfig } from "@/lib/engine";
+import { DEFAULT_CONFIG } from "@/lib/engine";
 
 function hexPoints(cx: number, cy: number, size: number): string {
   const pts: string[] = [];
@@ -38,6 +28,8 @@ interface HexBoardProps {
   currentPlayer: 0 | 1;
   isInteractive: boolean;
   onHexClick: (q: number, r: number) => void;
+  config?: GameConfig;
+  animOverride?: { pieceId: number; q: number; r: number } | null;
 }
 
 export default function HexBoard({
@@ -45,7 +37,13 @@ export default function HexBoard({
   validMoves,
   selectedPieceId,
   onHexClick,
+  config = DEFAULT_CONFIG,
+  animOverride = null,
 }: HexBoardProps) {
+  const HEX_SIZE = config.boardRadius <= 3 ? 40 : config.boardRadius <= 5 ? 30 : 22;
+  const WIDTH = HEX_SIZE * (config.boardRadius * 2 + 1) * 2 + 40;
+  const HEIGHT = HEX_SIZE * (config.boardRadius * 2 + 1) * 1.8 + 40;
+
   const handleClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       const svg = e.currentTarget;
@@ -56,7 +54,14 @@ export default function HexBoard({
       const hex = pixelToHex(svgX, svgY, HEX_SIZE);
       onHexClick(hex.q, hex.r);
     },
-    [onHexClick]
+    [onHexClick, WIDTH, HEIGHT, HEX_SIZE]
+  );
+
+  const boardCells = useMemo(() => hexDisk(config.boardRadius), [config.boardRadius]);
+  const killboxCells = useMemo(() => hexDisk(config.killboxRadius), [config.killboxRadius]);
+  const fortressCells = useMemo(
+    () => new Set(hexRing(config.fortressRing).map((h) => hexKey(h.q, h.r))),
+    [config.fortressRing]
   );
 
   const cells = useMemo(() => {
@@ -73,7 +78,7 @@ export default function HexBoard({
       });
     }
     return result;
-  }, []);
+  }, [boardCells, killboxCells, fortressCells]);
 
   const killboxList = useMemo(() => {
     const result: { q: number; r: number }[] = [];
@@ -81,14 +86,14 @@ export default function HexBoard({
       result.push(parseKey(ck));
     }
     return result;
-  }, []);
+  }, [killboxCells]);
 
-  const fortressList = useMemo(() => hexRing(2), []);
+  const fortressList = useMemo(() => hexRing(config.fortressRing), [config.fortressRing]);
 
   return (
     <svg
       viewBox={`${-WIDTH / 2} ${-HEIGHT / 2} ${WIDTH} ${HEIGHT}`}
-      className="w-full max-w-[580px] cursor-pointer touch-none"
+      className="w-full max-w-[600px] cursor-pointer touch-none"
       onClick={handleClick}
     >
       {/* Board hexes */}
@@ -243,13 +248,15 @@ export default function HexBoard({
 
       {/* Pieces */}
       {Object.values(pieces).map((p) => {
-        const [cx, cy] = hexToPixel(p.q, p.r, HEX_SIZE);
+        const pq = animOverride && animOverride.pieceId === p.id ? animOverride.q : p.q;
+        const pr = animOverride && animOverride.pieceId === p.id ? animOverride.r : p.r;
+        const [cx, cy] = hexToPixel(pq, pr, HEX_SIZE);
         const color = p.player === 0 ? "#e74c3c" : "#3498db";
         return (
           <g
             key={`piece-${p.id}`}
             transform={`translate(${cx}, ${cy})`}
-            style={{ transition: "transform 0.3s ease-in-out" }}
+            style={{ transition: "transform 0.25s ease-in-out" }}
           >
             <circle cx={1} cy={2} r={11} fill="rgba(0,0,0,0.4)" />
             <circle

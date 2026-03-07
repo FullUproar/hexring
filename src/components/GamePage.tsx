@@ -2,10 +2,12 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import HexBoard from "./HexBoard";
+import SettingsPanel from "./SettingsPanel";
 import { Game } from "@/lib/engine";
+import { DEFAULT_CONFIG } from "@/lib/engine";
 import { aiChooseMove } from "@/lib/engine/ai";
 import type { AIDifficulty } from "@/lib/engine/ai";
-import type { Move, GameState, Winner } from "@/lib/engine";
+import type { Move, GameState, GameConfig, Winner } from "@/lib/engine";
 
 type PlayerMode = "human" | "ai";
 
@@ -23,12 +25,15 @@ const DIFFICULTY_LABELS: Record<AIDifficulty, string> = {
 };
 
 export default function GamePage() {
-  const gameRef = useRef(new Game());
+  const [config, setConfig] = useState<GameConfig>(() => DEFAULT_CONFIG);
+  const gameRef = useRef(new Game(config));
   const [state, setState] = useState<GameState>(() => gameRef.current.state);
   const [selectedPieceId, setSelectedPieceId] = useState<number | null>(null);
   const [validMoves, setValidMoves] = useState<Move[]>([]);
   const [message, setMessage] = useState("Red goes first — select a piece.");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [animOverride, setAnimOverride] = useState<{ pieceId: number; q: number; r: number } | null>(null);
+  const animating = useRef(false);
   const [redMode, setRedMode] = useState<PlayerMode>("human");
   const [blueMode, setBlueMode] = useState<PlayerMode>("ai");
   const [difficulty, setDifficulty] = useState<AIDifficulty>(4);
@@ -47,8 +52,8 @@ export default function GamePage() {
     [isAI]
   );
 
-  const killTarget = gameRef.current.board.config.killTarget;
-  const piecesPerPlayer = gameRef.current.board.config.piecesPerPlayer;
+  const killTarget = config.killTarget;
+  const piecesPerPlayer = config.piecesPerPlayer;
 
   const redCount = Object.values(state.pieces).filter(
     (p) => p.player === 0
@@ -58,6 +63,40 @@ export default function GamePage() {
   ).length;
   const redKills = piecesPerPlayer - blueCount;
   const blueKills = piecesPerPlayer - redCount;
+
+  // --- Finalize a move (apply game state, update messages) ---
+  const finishMove = useCallback(
+    (move: Move, desc: string, game: Game) => {
+      const result = game.executeTurn(move);
+      setSelectedPieceId(null);
+      setValidMoves([]);
+      setAnimOverride(null);
+      animating.current = false;
+
+      if (result.winner !== null) {
+        const winMsg =
+          result.winner === 0
+            ? "RED WINS!"
+            : result.winner === 1
+              ? "BLUE WINS!"
+              : "DRAW!";
+        setMessage(`${desc} — ${winMsg}`);
+        setState({ ...game.state });
+        return;
+      }
+
+      const nextName = playerName(game.state.currentPlayer);
+      const nextIsAI =
+        (game.state.currentPlayer === 0 ? redMode : blueMode) === "ai";
+      if (nextIsAI) {
+        setMessage(`${desc} — ${nextName} is thinking...`);
+      } else {
+        setMessage(`${desc} — ${nextName}'s turn.`);
+      }
+      setState({ ...game.state });
+    },
+    [playerName, redMode, blueMode]
+  );
 
   // --- Execute a move (human or AI) ---
   const executeMove = useCallback(
@@ -87,33 +126,41 @@ export default function GamePage() {
         if (move.enemyKills) desc += ` — ${move.enemyKills} CAPTURED!`;
       }
 
-      const result = game.executeTurn(move);
       setSelectedPieceId(null);
       setValidMoves([]);
 
-      if (result.winner !== null) {
-        const winMsg =
-          result.winner === 0
-            ? "RED WINS!"
-            : result.winner === 1
-              ? "BLUE WINS!"
-              : "DRAW!";
-        setMessage(`${desc} — ${winMsg}`);
-        setState({ ...game.state });
+      // Animate chain jumps through intermediate hops
+      if (move.type === "CHAIN_JUMP" && move.chainHops && move.chainHops.length > 1) {
+        animating.current = true;
+        const piece = currentState.pieces[move.pieceId];
+        if (!piece) {
+          finishMove(move, desc, game);
+          return;
+        }
+        // Build hop positions: start -> hop1 -> hop2 -> ... -> final
+        const hops = move.chainHops;
+        let step = 0;
+
+        // Start at piece's current position
+        setAnimOverride({ pieceId: piece.id, q: piece.q, r: piece.r });
+
+        const stepThrough = () => {
+          if (step < hops.length) {
+            setAnimOverride({ pieceId: piece.id, q: hops[step].q, r: hops[step].r });
+            step++;
+            setTimeout(stepThrough, 280);
+          } else {
+            finishMove(move, desc, game);
+          }
+        };
+        // Start first hop after a brief delay for the transition to pick up the start position
+        setTimeout(stepThrough, 50);
         return;
       }
 
-      const nextName = playerName(game.state.currentPlayer);
-      const nextIsAI =
-        (game.state.currentPlayer === 0 ? redMode : blueMode) === "ai";
-      if (nextIsAI) {
-        setMessage(`${desc} — ${nextName} is thinking...`);
-      } else {
-        setMessage(`${desc} — ${nextName}'s turn.`);
-      }
-      setState({ ...game.state });
+      finishMove(move, desc, game);
     },
-    [playerName, redMode, blueMode]
+    [playerName, finishMove]
   );
 
   // --- AI turn ---
@@ -121,6 +168,7 @@ export default function GamePage() {
     if (state.winner !== null) return;
     if (!isAI(state.currentPlayer)) return;
     if (aiThinking.current) return;
+    if (animating.current) return;
 
     aiThinking.current = true;
     const timer = setTimeout(() => {
@@ -152,6 +200,7 @@ export default function GamePage() {
     (q: number, r: number) => {
       if (state.winner !== null) return;
       if (isAI(state.currentPlayer)) return;
+      if (animating.current) return;
 
       const game = gameRef.current;
 
@@ -236,6 +285,22 @@ export default function GamePage() {
     setState({ ...game.state });
   }, [playerName]);
 
+  // --- Apply new config ---
+  const handleConfigChange = useCallback(
+    (newConfig: GameConfig) => {
+      setConfig(newConfig);
+      const game = new Game(newConfig);
+      gameRef.current = game;
+      setHistory([]);
+      setSelectedPieceId(null);
+      setValidMoves([]);
+      aiThinking.current = false;
+      setMessage(`Settings applied! ${playerName(0)}'s turn.`);
+      setState({ ...game.state });
+    },
+    [playerName]
+  );
+
   // Reset game when mode changes
   const handleRedModeChange = useCallback(
     (mode: PlayerMode) => {
@@ -315,8 +380,10 @@ export default function GamePage() {
             validMoves={validMoves}
             selectedPieceId={selectedPieceId}
             currentPlayer={state.currentPlayer}
-            isInteractive={!isAI(state.currentPlayer) && state.winner === null}
+            isInteractive={!isAI(state.currentPlayer) && state.winner === null && !animating.current}
             onHexClick={handleHexClick}
+            config={config}
+            animOverride={animOverride}
           />
         </div>
 
@@ -434,6 +501,9 @@ export default function GamePage() {
             Play Online
           </a>
 
+          {/* Settings */}
+          <SettingsPanel config={config} onApply={handleConfigChange} />
+
           {/* Legend */}
           <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-3 text-xs leading-relaxed text-gray-400">
             <div className="text-sm text-gray-300 font-bold mb-1">
@@ -453,7 +523,11 @@ export default function GamePage() {
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#f0f] mr-1 align-middle" />{" "}
             Chain
             <br />
-            First to {killTarget} kills wins!
+            {config.winCondition === "first_to_kills"
+              ? `First to ${killTarget} kills wins!`
+              : config.winCondition === "last_standing"
+                ? "Reduce opponent to 1 piece to win!"
+                : "Eliminate all enemy pieces to win!"}
           </div>
         </div>
       </div>

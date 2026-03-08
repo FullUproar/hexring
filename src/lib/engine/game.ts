@@ -165,36 +165,57 @@ export class Game {
         moves.push({ type: "MOVE", destQ: nq, destR: nr, pieceId: piece.id });
       }
 
-      // PUSH — shove adjacent enemy (with optional chain push)
+      // PUSH — shove adjacent enemy (simple push always available; chain push as extra option)
       if (cfg.pushEnabled && occ.length && occ[0].player !== pid) {
         const target = occ[0];
         const blocked = cfg.fortressBlocksPush && this.board.isFortress(nq, nr);
         if (!blocked) {
+          // Simple push — always available as an option
+          const pq = nq + dq;
+          const pr = nr + dr;
+          const offBoard = !this.board.onBoard(pq, pr);
+          const intoKillbox = !offBoard && this.board.isKillbox(pq, pr);
+          const pushable =
+            (offBoard && cfg.pushOffBoard) ||
+            (intoKillbox && cfg.pushIntoKillbox) ||
+            (!offBoard && !intoKillbox && !this.occupied(state, pq, pr));
+          if (pushable) {
+            moves.push({
+              type: "PUSH",
+              destQ: nq,
+              destR: nr,
+              pieceId: piece.id,
+              targetId: target.id,
+              pushDest: [pq, pr],
+            });
+          }
+
+          // Chain push — additional option when there's a line of 2+ pieces
           if (cfg.chainPush) {
-            // Chain push: follow the line, collect all pieces
             const chainIds: number[] = [];
             let cq = nq, cr = nr;
             let chainBlocked = false;
             while (true) {
               const cp = this.piecesAt(state, cq, cr);
-              if (!cp.length) break; // empty hex — end of chain
+              if (!cp.length) break;
               if (cfg.fortressBlocksPush && this.board.isFortress(cq, cr) && chainIds.length > 0) {
                 chainBlocked = true; break;
               }
               chainIds.push(cp[0].id);
               cq += dq;
               cr += dr;
-              if (!this.board.onBoard(cq, cr)) break; // off board
+              if (!this.board.onBoard(cq, cr)) break;
             }
-            if (!chainBlocked && chainIds.length > 0) {
-              // cq, cr is where the last piece would go
-              const offBoard = !this.board.onBoard(cq, cr);
-              const intoKillbox = !offBoard && this.board.isKillbox(cq, cr);
-              const pushable =
-                (offBoard && cfg.pushOffBoard) ||
-                (intoKillbox && cfg.pushIntoKillbox) ||
-                (!offBoard && !intoKillbox && !this.occupied(state, cq, cr));
-              if (pushable) {
+            // Only generate chain push if there are 2+ pieces in the line
+            // (single piece is already covered by simple push above)
+            if (!chainBlocked && chainIds.length >= 2) {
+              const cOffBoard = !this.board.onBoard(cq, cr);
+              const cIntoKillbox = !cOffBoard && this.board.isKillbox(cq, cr);
+              const cPushable =
+                (cOffBoard && cfg.pushOffBoard) ||
+                (cIntoKillbox && cfg.pushIntoKillbox) ||
+                (!cOffBoard && !cIntoKillbox && !this.occupied(state, cq, cr));
+              if (cPushable) {
                 moves.push({
                   type: "PUSH",
                   destQ: nq,
@@ -205,26 +226,6 @@ export class Game {
                   chainPushIds: chainIds,
                 });
               }
-            }
-          } else {
-            // Simple push — only if destination is free
-            const pq = nq + dq;
-            const pr = nr + dr;
-            const offBoard = !this.board.onBoard(pq, pr);
-            const intoKillbox = !offBoard && this.board.isKillbox(pq, pr);
-            const pushable =
-              (offBoard && cfg.pushOffBoard) ||
-              (intoKillbox && cfg.pushIntoKillbox) ||
-              (!offBoard && !intoKillbox && !this.occupied(state, pq, pr));
-            if (pushable) {
-              moves.push({
-                type: "PUSH",
-                destQ: nq,
-                destR: nr,
-                pieceId: piece.id,
-                targetId: target.id,
-                pushDest: [pq, pr],
-              });
             }
           }
         }

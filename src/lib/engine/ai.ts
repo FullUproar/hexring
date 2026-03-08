@@ -331,17 +331,39 @@ function evalPiecePosition(
     for (const [dq, dr] of DIRS) {
       const nq = piece.q + dq;
       const nr = piece.r + dr;
-      const pq = nq + dq;
-      const pr = nr + dr;
       const target = Object.values(state.pieces).find(
         (p) => p.q === nq && p.r === nr && p.player === enemyPlayer
       );
       if (!target) continue;
       if (game.board.config.fortressBlocksPush && game.board.isFortress(nq, nr)) continue;
-      const offBoard = !game.board.onBoard(pq, pr);
-      const intoKillbox = !offBoard && game.board.isKillbox(pq, pr);
-      if (offBoard && game.board.config.pushOffBoard) score += 60 * offMult;
-      else if (intoKillbox && game.board.config.pushIntoKillbox) score += 50 * offMult;
+
+      if (game.board.config.chainPush) {
+        // Chain push threat: follow the line to see where it ends
+        let cq = nq, cr = nr;
+        let chainLen = 0;
+        while (true) {
+          const cp = Object.values(state.pieces).find(
+            (p) => p.q === cq && p.r === cr
+          );
+          if (!cp) break;
+          if (game.board.config.fortressBlocksPush && game.board.isFortress(cq, cr) && chainLen > 0) break;
+          chainLen++;
+          cq += dq;
+          cr += dr;
+          if (!game.board.onBoard(cq, cr)) break;
+        }
+        const offBoard = !game.board.onBoard(cq, cr);
+        const intoKillbox = !offBoard && game.board.isKillbox(cq, cr);
+        if (offBoard && game.board.config.pushOffBoard) score += 60 * offMult;
+        else if (intoKillbox && game.board.config.pushIntoKillbox) score += 50 * offMult;
+      } else {
+        const pq = nq + dq;
+        const pr = nr + dr;
+        const offBoard = !game.board.onBoard(pq, pr);
+        const intoKillbox = !offBoard && game.board.isKillbox(pq, pr);
+        if (offBoard && game.board.config.pushOffBoard) score += 60 * offMult;
+        else if (intoKillbox && game.board.config.pushIntoKillbox) score += 50 * offMult;
+      }
     }
   }
 
@@ -388,25 +410,109 @@ function evalPiecePosition(
       // Enemy at (piece.q - dq, piece.r - dr) could push this piece to (piece.q + dq, piece.r + dr)
       const eq = piece.q - dq;
       const er = piece.r - dr;
-      const pushTo_q = piece.q + dq;
-      const pushTo_r = piece.r + dr;
-
-      // Is there an enemy adjacent who could push us?
-      const attacker = Object.values(state.pieces).find(
-        (p) => p.q === eq && p.r === er && p.player === enemyPlayer
-      );
-      if (!attacker) continue;
 
       // Can't be pushed from fortress
       if (cfg.fortressBlocksPush && game.board.isFortress(piece.q, piece.r)) continue;
 
-      const offBoard = !game.board.onBoard(pushTo_q, pushTo_r);
-      const intoKillbox = !offBoard && game.board.isKillbox(pushTo_q, pushTo_r);
+      // --- Direct push vulnerability ---
+      const attacker = Object.values(state.pieces).find(
+        (p) => p.q === eq && p.r === er && p.player === enemyPlayer
+      );
 
-      if (offBoard && cfg.pushOffBoard) {
-        score -= 120; // very dangerous — instant death
-      } else if (intoKillbox && cfg.pushIntoKillbox) {
-        score -= 100; // pushed into killbox — death
+      if (attacker) {
+        if (cfg.chainPush) {
+          // Chain push: follow the line from this piece in push direction
+          // to see where the END of the chain lands
+          let cq = piece.q, cr = piece.r;
+          let chainLen = 0;
+          while (true) {
+            const cp = Object.values(state.pieces).find(
+              (p) => p.q === cq && p.r === cr
+            );
+            if (!cp) break;
+            if (cfg.fortressBlocksPush && game.board.isFortress(cq, cr) && chainLen > 0) break;
+            chainLen++;
+            cq += dq;
+            cr += dr;
+            if (!game.board.onBoard(cq, cr)) break;
+          }
+          // cq, cr is where the last piece in the chain would be pushed to
+          const offBoard = !game.board.onBoard(cq, cr);
+          const intoKillbox = !offBoard && game.board.isKillbox(cq, cr);
+          if (offBoard && cfg.pushOffBoard) {
+            // Being part of a chain that pushes someone off is dangerous
+            // Especially bad if THIS piece is the last in line
+            const isLast = !Object.values(state.pieces).some(
+              (p) => p.q === piece.q + dq && p.r === piece.r + dr
+            );
+            score -= isLast ? 130 : 50;
+          } else if (intoKillbox && cfg.pushIntoKillbox) {
+            const isLast = !Object.values(state.pieces).some(
+              (p) => p.q === piece.q + dq && p.r === piece.r + dr
+            );
+            score -= isLast ? 110 : 40;
+          }
+        } else {
+          // Simple push
+          const pushTo_q = piece.q + dq;
+          const pushTo_r = piece.r + dr;
+          const offBoard = !game.board.onBoard(pushTo_q, pushTo_r);
+          const intoKillbox = !offBoard && game.board.isKillbox(pushTo_q, pushTo_r);
+          if (offBoard && cfg.pushOffBoard) {
+            score -= 120;
+          } else if (intoKillbox && cfg.pushIntoKillbox) {
+            score -= 100;
+          }
+        }
+      }
+
+      // --- Push-after-jump vulnerability ---
+      // An enemy 2 hexes away could jump an intervening piece to land adjacent,
+      // then push this piece as a combo
+      if (cfg.pushAfterJump) {
+        const jumpLandQ = piece.q - dq; // enemy lands adjacent to us
+        const jumpLandR = piece.r - dr;
+        const midQ = jumpLandQ - dq; // piece being jumped over
+        const midR = jumpLandR - dr;
+        const enemyStartQ = midQ - dq; // enemy starts here
+        const enemyStartR = midR - dr;
+
+        if (
+          game.board.onBoard(jumpLandQ, jumpLandR) &&
+          game.board.onBoard(midQ, midR) &&
+          game.board.onBoard(enemyStartQ, enemyStartR)
+        ) {
+          // Is the landing hex empty? (enemy would land there)
+          const landOcc = Object.values(state.pieces).find(
+            (p) => p.q === jumpLandQ && p.r === jumpLandR
+          );
+          // Is there a piece to jump over?
+          const midPiece = Object.values(state.pieces).find(
+            (p) => p.q === midQ && p.r === midR
+          );
+          // Is there an enemy at the start?
+          const jumpAttacker = Object.values(state.pieces).find(
+            (p) => p.q === enemyStartQ && p.r === enemyStartR && p.player === enemyPlayer
+          );
+
+          if (jumpAttacker && midPiece && !landOcc) {
+            const canJumpMid =
+              (midPiece.player === enemyPlayer && cfg.jumpOverFriendly) ||
+              (midPiece.player !== enemyPlayer && cfg.jumpOverEnemy);
+            if (canJumpMid) {
+              // Where would we be pushed to?
+              const pushTo_q = piece.q + dq;
+              const pushTo_r = piece.r + dr;
+              const offBoard = !game.board.onBoard(pushTo_q, pushTo_r);
+              const intoKillbox = !offBoard && game.board.isKillbox(pushTo_q, pushTo_r);
+              if (offBoard && cfg.pushOffBoard) {
+                score -= 80; // jump-then-push kill threat
+              } else if (intoKillbox && cfg.pushIntoKillbox) {
+                score -= 70;
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -418,10 +524,14 @@ function moveOrderScore(m: Move): number {
   let score = 0;
   if (m.type === "CHAIN_JUMP") score = (m.enemyKills || 0) * 3 + (m.sacrifice ? -1 : 0);
   else if (m.type === "JUMP" && m.isCapture) score = 2 + (m.sacrifice ? -1 : 0);
-  else if (m.type === "PUSH") score = 2;
+  else if (m.type === "PUSH") {
+    score = 2;
+    // Chain push that kills is more valuable
+    if (m.chainPushIds && m.chainPushIds.length > 1) score += 1;
+  }
   else if (m.type === "DEPLOY") score = 1;
-  // Bonus for follow-up push (jump + push combo)
-  if (m.followUpPush) score += 2;
+  // Bonus for follow-up push (jump + push combo) — these are high-value combos
+  if (m.followUpPush) score += 3;
   return score;
 }
 

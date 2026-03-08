@@ -212,12 +212,16 @@ export default function GamePage() {
       const game = gameRef.current;
 
       // Check if clicking a valid move destination (including deploy targets)
-      // Prefer moves with follow-up pushes (more impactful)
+      // Prefer more impactful moves: follow-up push > chain push > simple push
       const matchingMoves = validMoves.filter(
         (m) => m.destQ === q && m.destR === r
       );
       const clickedMove = matchingMoves.length > 1
-        ? matchingMoves.sort((a, b) => (b.followUpPush ? 1 : 0) - (a.followUpPush ? 1 : 0))[0]
+        ? matchingMoves.sort((a, b) => {
+            const scoreA = (a.followUpPush ? 4 : 0) + (a.chainPushIds && a.chainPushIds.length > 1 ? 2 : 0);
+            const scoreB = (b.followUpPush ? 4 : 0) + (b.chainPushIds && b.chainPushIds.length > 1 ? 2 : 0);
+            return scoreB - scoreA;
+          })[0]
         : matchingMoves[0];
       if (clickedMove) {
         setDeployMode(false);
@@ -245,6 +249,21 @@ export default function GamePage() {
         if (pushes) msg += ` ${pushes} push(es).`;
         setMessage(msg);
         return;
+      }
+
+      // Check if clicking an empty deploy zone hex — auto-deploy
+      if (
+        config.deployEnabled &&
+        (state.reservePieces?.[state.currentPlayer] ?? 0) > 0
+      ) {
+        const allM = game.allMoves(game.state);
+        const deployMove = allM.find(
+          (m) => m.type === "DEPLOY" && m.destQ === q && m.destR === r
+        );
+        if (deployMove) {
+          executeMove(deployMove, game, game.state);
+          return;
+        }
       }
 
       // Deselect

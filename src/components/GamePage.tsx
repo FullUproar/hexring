@@ -24,8 +24,39 @@ const DIFFICULTY_LABELS: Record<AIDifficulty, string> = {
   6: "Master",
 };
 
+const SETTINGS_KEY = "hexring-settings";
+
+function loadSettings(): { config: GameConfig; redMode: PlayerMode; blueMode: PlayerMode; difficulty: AIDifficulty } | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    // Merge with defaults to handle new fields added after save
+    return {
+      config: { ...DEFAULT_CONFIG, ...saved.config },
+      redMode: saved.redMode ?? "human",
+      blueMode: saved.blueMode ?? "ai",
+      difficulty: saved.difficulty ?? 4,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveSettings(config: GameConfig, redMode: PlayerMode, blueMode: PlayerMode, difficulty: AIDifficulty) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ config, redMode, blueMode, difficulty }));
+  } catch { /* ignore */ }
+}
+
 export default function GamePage() {
-  const [config, setConfig] = useState<GameConfig>(() => DEFAULT_CONFIG);
+  const [config, setConfig] = useState<GameConfig>(() => {
+    if (typeof window !== "undefined") {
+      const saved = loadSettings();
+      if (saved) return saved.config;
+    }
+    return DEFAULT_CONFIG;
+  });
   const gameRef = useRef(new Game(config));
   const [state, setState] = useState<GameState>(() => gameRef.current.state);
   const [selectedPieceId, setSelectedPieceId] = useState<number | null>(null);
@@ -34,10 +65,33 @@ export default function GamePage() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [animOverride, setAnimOverride] = useState<{ pieceId: number; q: number; r: number } | null>(null);
   const animating = useRef(false);
-  const [redMode, setRedMode] = useState<PlayerMode>("human");
-  const [blueMode, setBlueMode] = useState<PlayerMode>("ai");
-  const [difficulty, setDifficulty] = useState<AIDifficulty>(4);
+  const [redMode, setRedMode] = useState<PlayerMode>(() => {
+    if (typeof window !== "undefined") {
+      const saved = loadSettings();
+      if (saved) return saved.redMode;
+    }
+    return "human";
+  });
+  const [blueMode, setBlueMode] = useState<PlayerMode>(() => {
+    if (typeof window !== "undefined") {
+      const saved = loadSettings();
+      if (saved) return saved.blueMode;
+    }
+    return "ai";
+  });
+  const [difficulty, setDifficulty] = useState<AIDifficulty>(() => {
+    if (typeof window !== "undefined") {
+      const saved = loadSettings();
+      if (saved) return saved.difficulty;
+    }
+    return 4;
+  });
   const aiThinking = useRef(false);
+
+  // Persist settings to localStorage
+  useEffect(() => {
+    saveSettings(config, redMode, blueMode, difficulty);
+  }, [config, redMode, blueMode, difficulty]);
 
   const isAI = useCallback(
     (player: 0 | 1) => (player === 0 ? redMode : blueMode) === "ai",

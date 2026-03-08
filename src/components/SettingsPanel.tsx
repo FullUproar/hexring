@@ -264,7 +264,7 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
             label="Deploy zone (ring)"
             value={draft.deployZone}
             min={0}
-            max={draft.boardRadius - 1}
+            max={draft.boardRadius}
             onChange={(v) => set("deployZone", v)}
           />
           <NumberInput

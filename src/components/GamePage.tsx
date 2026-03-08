@@ -565,8 +565,9 @@ export default function GamePage() {
             {config.deployEnabled && (
               <>
                 {" "}
-                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1a3a2e] border border-[#2d6b4a] mr-1 align-middle" />{" "}
-                Deploy zone
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#2e1a1a] border border-[#6b2d2d] mr-1 align-middle" />{" "}
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1a1a2e] border border-[#2d2d6b] mr-1 align-middle" />{" "}
+                Deploy
               </>
             )}
             <br />

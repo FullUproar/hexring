@@ -63,10 +63,19 @@ export default function HexBoard({
     () => new Set(hexRing(config.fortressRing).map((h) => hexKey(h.q, h.r))),
     [config.fortressRing]
   );
-  const deployZoneCells = useMemo(
-    () => config.deployEnabled ? new Set(hexRing(config.deployZone).map((h) => hexKey(h.q, h.r))) : new Set<string>(),
-    [config.deployEnabled, config.deployZone]
-  );
+  const deployZones = useMemo(() => {
+    if (!config.deployEnabled) return { red: new Set<string>(), blue: new Set<string>() };
+    const dRing = hexRing(config.deployZone);
+    const dHalf = Math.floor(dRing.length / 2);
+    const red = new Set<string>();
+    const blue = new Set<string>();
+    for (let i = 0; i < dRing.length; i++) {
+      const key = hexKey(dRing[i].q, dRing[i].r);
+      if (i < dHalf) red.add(key);
+      else blue.add(key);
+    }
+    return { red, blue };
+  }, [config.deployEnabled, config.deployZone]);
 
   const cells = useMemo(() => {
     const result: { q: number; r: number; fill: string; stroke: string }[] = [];
@@ -74,16 +83,18 @@ export default function HexBoard({
       const { q, r } = parseKey(ck);
       const isKillbox = killboxCells.has(ck);
       const isFortress = fortressCells.has(ck);
-      const isDeploy = deployZoneCells.has(ck);
-      result.push({
-        q,
-        r,
-        fill: isKillbox ? "#0d0d1a" : isFortress ? "#5c4d3a" : isDeploy ? "#1a3a2e" : "#2a2a3e",
-        stroke: isKillbox ? "#333" : isFortress ? "#8B7355" : isDeploy ? "#2d6b4a" : "#444",
-      });
+      const isRedDeploy = deployZones.red.has(ck);
+      const isBlueDeploy = deployZones.blue.has(ck);
+      let fill = "#2a2a3e";
+      let stroke = "#444";
+      if (isKillbox) { fill = "#0d0d1a"; stroke = "#333"; }
+      else if (isFortress) { fill = "#5c4d3a"; stroke = "#8B7355"; }
+      else if (isRedDeploy) { fill = "#2e1a1a"; stroke = "#6b2d2d"; }
+      else if (isBlueDeploy) { fill = "#1a1a2e"; stroke = "#2d2d6b"; }
+      result.push({ q, r, fill, stroke });
     }
     return result;
-  }, [boardCells, killboxCells, fortressCells, deployZoneCells]);
+  }, [boardCells, killboxCells, fortressCells, deployZones]);
 
   const killboxList = useMemo(() => {
     const result: { q: number; r: number }[] = [];
@@ -94,10 +105,12 @@ export default function HexBoard({
   }, [killboxCells]);
 
   const fortressList = useMemo(() => hexRing(config.fortressRing), [config.fortressRing]);
-  const deployZoneList = useMemo(
-    () => config.deployEnabled ? hexRing(config.deployZone) : [],
-    [config.deployEnabled, config.deployZone]
-  );
+  const deployZoneList = useMemo(() => {
+    if (!config.deployEnabled) return [];
+    const dRing = hexRing(config.deployZone);
+    const dHalf = Math.floor(dRing.length / 2);
+    return dRing.map((h, i) => ({ ...h, player: i < dHalf ? 0 : 1 }));
+  }, [config.deployEnabled, config.deployZone]);
 
   return (
     <svg
@@ -156,7 +169,7 @@ export default function HexBoard({
       })}
 
       {/* Deploy zone icons */}
-      {deployZoneList.map(({ q, r }) => {
+      {deployZoneList.map(({ q, r, player }) => {
         const [cx, cy] = hexToPixel(q, r, HEX_SIZE);
         return (
           <text
@@ -166,7 +179,7 @@ export default function HexBoard({
             textAnchor="middle"
             dominantBaseline="central"
             fontSize="10"
-            fill="#3d8b5a"
+            fill={player === 0 ? "#8b3d3d" : "#3d3d8b"}
             opacity="0.6"
           >
             +

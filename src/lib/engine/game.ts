@@ -304,9 +304,9 @@ export class Game {
     for (const piece of Object.values(state.pieces)) {
       if (piece.player === p) moves.push(...this.genMoves(state, piece));
     }
-    // DEPLOY moves — place a reserve piece on an empty deploy zone hex
+    // DEPLOY moves — place a reserve piece on an empty hex in player's deploy zone
     if (this.board.config.deployEnabled && state.reservePieces[p] > 0) {
-      for (const key of this.board.deployZone) {
+      for (const key of this.board.deployZone[p]) {
         const { q, r } = parseKey(key);
         if (!this.occupied(state, q, r) && !this.board.isKillbox(q, r)) {
           moves.push({

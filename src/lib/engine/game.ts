@@ -509,7 +509,15 @@ export class Game {
         delete state.pieces[piece.id];
       }
       if (move.followUpPush && state.pieces[piece.id]) {
-        this.applyPush(state, move.followUpPush.targetId, move.followUpPush.pushDest, move.followUpPush.chainPushIds);
+        const fup = move.followUpPush;
+        const target = state.pieces[fup.targetId];
+        if (target) {
+          // Pusher moves into the target's hex
+          const tq = target.q, tr = target.r;
+          this.applyPush(state, fup.targetId, fup.pushDest, fup.chainPushIds);
+          piece.q = tq;
+          piece.r = tr;
+        }
       }
     } else if (move.type === "CHAIN_JUMP") {
       piece.q = move.destQ;
@@ -522,7 +530,15 @@ export class Game {
         delete state.pieces[piece.id];
       }
       if (move.followUpPush && state.pieces[piece.id]) {
-        this.applyPush(state, move.followUpPush.targetId, move.followUpPush.pushDest, move.followUpPush.chainPushIds);
+        const fup = move.followUpPush;
+        const target = state.pieces[fup.targetId];
+        if (target) {
+          // Pusher moves into the target's hex
+          const tq = target.q, tr = target.r;
+          this.applyPush(state, fup.targetId, fup.pushDest, fup.chainPushIds);
+          piece.q = tq;
+          piece.r = tr;
+        }
       }
     }
   }

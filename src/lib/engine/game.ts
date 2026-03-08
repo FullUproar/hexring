@@ -165,28 +165,67 @@ export class Game {
         moves.push({ type: "MOVE", destQ: nq, destR: nr, pieceId: piece.id });
       }
 
-      // PUSH — shove adjacent enemy
+      // PUSH — shove adjacent enemy (with optional chain push)
       if (cfg.pushEnabled && occ.length && occ[0].player !== pid) {
         const target = occ[0];
         const blocked = cfg.fortressBlocksPush && this.board.isFortress(nq, nr);
         if (!blocked) {
-          const pq = nq + dq;
-          const pr = nr + dr;
-          const offBoard = !this.board.onBoard(pq, pr);
-          const intoKillbox = !offBoard && this.board.isKillbox(pq, pr);
-          const pushable =
-            (offBoard && cfg.pushOffBoard) ||
-            (intoKillbox && cfg.pushIntoKillbox) ||
-            (!offBoard && !intoKillbox && !this.occupied(state, pq, pr));
-          if (pushable) {
-            moves.push({
-              type: "PUSH",
-              destQ: nq,
-              destR: nr,
-              pieceId: piece.id,
-              targetId: target.id,
-              pushDest: [pq, pr],
-            });
+          if (cfg.chainPush) {
+            // Chain push: follow the line, collect all pieces
+            const chainIds: number[] = [];
+            let cq = nq, cr = nr;
+            let chainBlocked = false;
+            while (true) {
+              const cp = this.piecesAt(state, cq, cr);
+              if (!cp.length) break; // empty hex — end of chain
+              if (cfg.fortressBlocksPush && this.board.isFortress(cq, cr) && chainIds.length > 0) {
+                chainBlocked = true; break;
+              }
+              chainIds.push(cp[0].id);
+              cq += dq;
+              cr += dr;
+              if (!this.board.onBoard(cq, cr)) break; // off board
+            }
+            if (!chainBlocked && chainIds.length > 0) {
+              // cq, cr is where the last piece would go
+              const offBoard = !this.board.onBoard(cq, cr);
+              const intoKillbox = !offBoard && this.board.isKillbox(cq, cr);
+              const pushable =
+                (offBoard && cfg.pushOffBoard) ||
+                (intoKillbox && cfg.pushIntoKillbox) ||
+                (!offBoard && !intoKillbox && !this.occupied(state, cq, cr));
+              if (pushable) {
+                moves.push({
+                  type: "PUSH",
+                  destQ: nq,
+                  destR: nr,
+                  pieceId: piece.id,
+                  targetId: target.id,
+                  pushDest: [nq + dq, nr + dr],
+                  chainPushIds: chainIds,
+                });
+              }
+            }
+          } else {
+            // Simple push — only if destination is free
+            const pq = nq + dq;
+            const pr = nr + dr;
+            const offBoard = !this.board.onBoard(pq, pr);
+            const intoKillbox = !offBoard && this.board.isKillbox(pq, pr);
+            const pushable =
+              (offBoard && cfg.pushOffBoard) ||
+              (intoKillbox && cfg.pushIntoKillbox) ||
+              (!offBoard && !intoKillbox && !this.occupied(state, pq, pr));
+            if (pushable) {
+              moves.push({
+                type: "PUSH",
+                destQ: nq,
+                destR: nr,
+                pieceId: piece.id,
+                targetId: target.id,
+                pushDest: [pq, pr],
+              });
+            }
           }
         }
       }
@@ -295,7 +334,116 @@ export class Game {
       }
     }
 
+    // Push after jump — generate variants with a follow-up push
+    if (cfg.pushAfterJump && cfg.pushEnabled) {
+      const jumpMoves = moves.filter(
+        (m) => (m.type === "JUMP" || m.type === "CHAIN_JUMP") && !m.sacrifice
+      );
+      for (const jm of jumpMoves) {
+        const pushVariants = this.genFollowUpPushes(state, jm, piece);
+        moves.push(...pushVariants);
+      }
+    }
+
     return moves;
+  }
+
+  private genFollowUpPushes(state: GameState, jumpMove: Move, piece: Piece): Move[] {
+    const results: Move[] = [];
+    const cfg = this.board.config;
+    const landQ = jumpMove.destQ;
+    const landR = jumpMove.destR;
+
+    // Simulate the jump to see what pieces are left
+    // (captures remove enemies, chain jumps remove multiple)
+    const removedIds = new Set<number>();
+    if (jumpMove.type === "JUMP" && jumpMove.isCapture) {
+      removedIds.add(jumpMove.targetId!);
+    } else if (jumpMove.type === "CHAIN_JUMP" && jumpMove.chainTargets) {
+      for (const tid of jumpMove.chainTargets) {
+        const t = state.pieces[tid];
+        if (t && t.player !== piece.player) removedIds.add(tid);
+      }
+    }
+
+    for (const [dq, dr] of DIRS) {
+      const nq = landQ + dq;
+      const nr = landR + dr;
+      if (!this.board.onBoard(nq, nr)) continue;
+
+      // Find enemy at adjacent position (not removed by the jump)
+      const target = Object.values(state.pieces).find(
+        (p) => p.q === nq && p.r === nr && p.player !== piece.player && !removedIds.has(p.id)
+      );
+      if (!target) continue;
+      if (cfg.fortressBlocksPush && this.board.isFortress(nq, nr)) continue;
+
+      if (cfg.chainPush) {
+        // Chain push from the follow-up
+        const chainIds: number[] = [];
+        let cq = nq, cr = nr;
+        let blocked = false;
+        while (true) {
+          // Skip the jumping piece's original position (it will have moved)
+          const cp = Object.values(state.pieces).find(
+            (p) => p.q === cq && p.r === cr && !removedIds.has(p.id) && p.id !== piece.id
+          );
+          if (!cp) break;
+          if (cfg.fortressBlocksPush && this.board.isFortress(cq, cr) && chainIds.length > 0) {
+            blocked = true; break;
+          }
+          chainIds.push(cp.id);
+          cq += dq;
+          cr += dr;
+          if (!this.board.onBoard(cq, cr)) break;
+        }
+        if (blocked || !chainIds.length) continue;
+        const offBoard = !this.board.onBoard(cq, cr);
+        const intoKillbox = !offBoard && this.board.isKillbox(cq, cr);
+        // Check the end position isn't occupied (excluding removed/moved pieces)
+        const endOccupied = !offBoard && !intoKillbox && Object.values(state.pieces).some(
+          (p) => p.q === cq && p.r === cr && !removedIds.has(p.id) && p.id !== piece.id
+        );
+        const pushable =
+          (offBoard && cfg.pushOffBoard) ||
+          (intoKillbox && cfg.pushIntoKillbox) ||
+          (!offBoard && !intoKillbox && !endOccupied);
+        if (pushable) {
+          results.push({
+            ...jumpMove,
+            followUpPush: {
+              targetId: target.id,
+              pushDest: [nq + dq, nr + dr],
+              chainPushIds: chainIds,
+            },
+          });
+        }
+      } else {
+        // Simple push
+        const pq = nq + dq;
+        const pr = nr + dr;
+        const offBoard = !this.board.onBoard(pq, pr);
+        const intoKillbox = !offBoard && this.board.isKillbox(pq, pr);
+        // Check destination isn't occupied (excluding pieces removed by jump and the jumping piece itself)
+        const destOccupied = !offBoard && !intoKillbox && Object.values(state.pieces).some(
+          (p) => p.q === pq && p.r === pr && !removedIds.has(p.id) && p.id !== piece.id
+        );
+        const pushable =
+          (offBoard && cfg.pushOffBoard) ||
+          (intoKillbox && cfg.pushIntoKillbox) ||
+          (!offBoard && !intoKillbox && !destOccupied);
+        if (pushable) {
+          results.push({
+            ...jumpMove,
+            followUpPush: {
+              targetId: target.id,
+              pushDest: [pq, pr],
+            },
+          });
+        }
+      }
+    }
+    return results;
   }
 
   allMoves(state: GameState, player?: 0 | 1): Move[] {
@@ -351,25 +499,16 @@ export class Game {
     } else if (move.type === "PUSH") {
       piece.q = move.destQ;
       piece.r = move.destR;
-      const target = state.pieces[move.targetId!];
-      if (target) {
-        const [pq, pr] = move.pushDest!;
-        if (!this.board.onBoard(pq, pr) || this.board.isKillbox(pq, pr)) {
-          delete state.pieces[target.id];
-        } else {
-          target.q = pq;
-          target.r = pr;
-          if (this.board.isKillbox(target.q, target.r)) {
-            delete state.pieces[target.id];
-          }
-        }
-      }
+      this.applyPush(state, move.targetId!, move.pushDest!, move.chainPushIds);
     } else if (move.type === "JUMP") {
       piece.q = move.destQ;
       piece.r = move.destR;
       if (move.isCapture) delete state.pieces[move.targetId!];
       if (this.board.isKillbox(piece.q, piece.r)) {
         delete state.pieces[piece.id];
+      }
+      if (move.followUpPush && state.pieces[piece.id]) {
+        this.applyPush(state, move.followUpPush.targetId, move.followUpPush.pushDest, move.followUpPush.chainPushIds);
       }
     } else if (move.type === "CHAIN_JUMP") {
       piece.q = move.destQ;
@@ -380,6 +519,53 @@ export class Game {
       }
       if (this.board.isKillbox(piece.q, piece.r)) {
         delete state.pieces[piece.id];
+      }
+      if (move.followUpPush && state.pieces[piece.id]) {
+        this.applyPush(state, move.followUpPush.targetId, move.followUpPush.pushDest, move.followUpPush.chainPushIds);
+      }
+    }
+  }
+
+  private applyPush(
+    state: GameState,
+    targetId: number,
+    pushDest: [number, number],
+    chainPushIds?: number[]
+  ): void {
+    if (chainPushIds && chainPushIds.length > 1) {
+      // Chain push: shift all pieces in the chain, from farthest to closest
+      // Derive direction from first target and its push dest
+      const first = state.pieces[chainPushIds[0]];
+      if (!first) return;
+      const dq = pushDest[0] - first.q;
+      const dr = pushDest[1] - first.r;
+
+      // Process from the end of the chain backward
+      for (let i = chainPushIds.length - 1; i >= 0; i--) {
+        const p = state.pieces[chainPushIds[i]];
+        if (!p) continue;
+        const newQ = p.q + dq;
+        const newR = p.r + dr;
+        if (!this.board.onBoard(newQ, newR)) {
+          delete state.pieces[p.id];
+        } else if (this.board.isKillbox(newQ, newR)) {
+          delete state.pieces[p.id];
+        } else {
+          p.q = newQ;
+          p.r = newR;
+        }
+      }
+    } else {
+      // Simple push
+      const target = state.pieces[targetId];
+      if (target) {
+        const [pq, pr] = pushDest;
+        if (!this.board.onBoard(pq, pr) || this.board.isKillbox(pq, pr)) {
+          delete state.pieces[target.id];
+        } else {
+          target.q = pq;
+          target.r = pr;
+        }
       }
     }
   }

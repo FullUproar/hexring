@@ -21,6 +21,12 @@ export interface ChainHop {
   isEnemy: boolean;
 }
 
+export interface FollowUpPush {
+  targetId: number;
+  pushDest: [number, number];
+  chainPushIds?: number[]; // if chain push, all pieces shifted
+}
+
 export interface Move {
   type: MoveType;
   pieceId: number;
@@ -29,6 +35,7 @@ export interface Move {
   // PUSH
   targetId?: number;
   pushDest?: [number, number];
+  chainPushIds?: number[]; // chain push: all pieces shifted (closest to farthest)
   // JUMP
   isCapture?: boolean;
   jumpOver?: [number, number];
@@ -37,6 +44,8 @@ export interface Move {
   chainHops?: ChainHop[];
   chainTargets?: number[];
   enemyKills?: number;
+  // Push after jump
+  followUpPush?: FollowUpPush;
 }
 
 export type Winner = 0 | 1 | "draw" | null;
@@ -82,6 +91,8 @@ export interface GameConfig {
   jumpOverFriendly: boolean;
   jumpOverEnemy: boolean;
   captureOnJump: boolean;
+  chainPush: boolean; // push shifts entire line of pieces
+  pushAfterJump: boolean; // can push an adjacent enemy after landing from a jump
   threefoldRepetition: boolean;
   turnLimit: number; // 0 = no limit
 
@@ -110,6 +121,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   jumpOverFriendly: true,
   jumpOverEnemy: true,
   captureOnJump: true,
+  chainPush: false,
+  pushAfterJump: false,
   threefoldRepetition: true,
   turnLimit: 0,
   deployEnabled: false,

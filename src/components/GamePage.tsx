@@ -124,9 +124,11 @@ export default function GamePage() {
           ? `${name} JUMP CAPTURES enemy!`
           : `${name} jumps over friendly`;
         if (move.sacrifice) desc += " (SACRIFICE!)";
+        if (move.followUpPush) desc += " + PUSH!";
       } else if (move.type === "CHAIN_JUMP") {
         desc = `${name} CHAIN JUMPS (${move.chainTargets!.length} hops)`;
         if (move.enemyKills) desc += ` — ${move.enemyKills} CAPTURED!`;
+        if (move.followUpPush) desc += " + PUSH!";
       } else if (move.type === "DEPLOY") {
         desc = `${name} DEPLOYS reinforcement to (${move.destQ},${move.destR})`;
       }
@@ -210,9 +212,13 @@ export default function GamePage() {
       const game = gameRef.current;
 
       // Check if clicking a valid move destination (including deploy targets)
-      const clickedMove = validMoves.find(
+      // Prefer moves with follow-up pushes (more impactful)
+      const matchingMoves = validMoves.filter(
         (m) => m.destQ === q && m.destR === r
       );
+      const clickedMove = matchingMoves.length > 1
+        ? matchingMoves.sort((a, b) => (b.followUpPush ? 1 : 0) - (a.followUpPush ? 1 : 0))[0]
+        : matchingMoves[0];
       if (clickedMove) {
         setDeployMode(false);
         executeMove(clickedMove, game, game.state);

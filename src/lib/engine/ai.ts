@@ -358,12 +358,14 @@ function evalPiecePosition(
 }
 
 function moveOrderScore(m: Move): number {
-  if (m.type === "CHAIN_JUMP") return (m.enemyKills || 0) * 3 + (m.sacrifice ? -1 : 0);
-  if (m.type === "JUMP" && m.isCapture) return 2 + (m.sacrifice ? -1 : 0);
-  if (m.type === "PUSH") return 2; // pushes are kills (off-board/killbox) — prioritize them
-  if (m.type === "DEPLOY") return 1; // deploying is useful but not as urgent as captures
-  if (m.type === "JUMP") return 0;
-  return 0;
+  let score = 0;
+  if (m.type === "CHAIN_JUMP") score = (m.enemyKills || 0) * 3 + (m.sacrifice ? -1 : 0);
+  else if (m.type === "JUMP" && m.isCapture) score = 2 + (m.sacrifice ? -1 : 0);
+  else if (m.type === "PUSH") score = 2;
+  else if (m.type === "DEPLOY") score = 1;
+  // Bonus for follow-up push (jump + push combo)
+  if (m.followUpPush) score += 2;
+  return score;
 }
 
 function orderMoves(moves: Move[]): void {

@@ -205,14 +205,15 @@ export default function HexBoard({
           color = "#4f4";
         }
 
+        const pushSuffix = m.followUpPush ? "+push" : "";
         const labels: Record<string, string> = {
           MOVE: "move",
-          PUSH: "push",
-          JUMP: m.isCapture ? "capture!" : "jump",
+          PUSH: m.chainPushIds && m.chainPushIds.length > 1 ? `push(${m.chainPushIds.length})` : "push",
+          JUMP: (m.isCapture ? "capture!" : "jump") + pushSuffix,
           CHAIN_JUMP:
-            (m.enemyKills ?? 0) > 0
+            ((m.enemyKills ?? 0) > 0
               ? `chain(${m.enemyKills}kill)`
-              : "chain",
+              : "chain") + pushSuffix,
           DEPLOY: "deploy",
         };
 

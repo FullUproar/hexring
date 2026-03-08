@@ -192,6 +192,16 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
             checked={draft.fortressBlocksPush}
             onChange={(v) => set("fortressBlocksPush", v)}
           />
+          <Toggle
+            label="Chain push (push lines)"
+            checked={draft.chainPush}
+            onChange={(v) => set("chainPush", v)}
+          />
+          <Toggle
+            label="Push after jump"
+            checked={draft.pushAfterJump}
+            onChange={(v) => set("pushAfterJump", v)}
+          />
         </>
       )}
 

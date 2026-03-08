@@ -103,10 +103,10 @@ export class Game {
     }
 
     if (wc === "last_standing") {
-      // Win when opponent has only 1 piece left
-      if (r <= 1 && b <= 1) return "draw";
-      if (r <= 1) return 1;
-      if (b <= 1) return 0;
+      // Win when opponent has 0 pieces left
+      if (r === 0 && b === 0) return "draw";
+      if (r === 0) return 1;
+      if (b === 0) return 0;
       return null;
     }
 

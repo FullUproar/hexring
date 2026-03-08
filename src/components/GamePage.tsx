@@ -107,6 +107,11 @@ export default function GamePage() {
   );
 
   const [deployMode, setDeployMode] = useState(false);
+  // Pending follow-up push: after a jump lands, player picks which enemy to push (or skips)
+  const [pendingPush, setPendingPush] = useState<{
+    baseMove: Move; // the jump/chain_jump move WITHOUT followUpPush
+    pushMoves: Move[]; // variants WITH followUpPush (one per push target)
+  } | null>(null);
   const killTarget = config.killTarget;
   const piecesPerPlayer = config.piecesPerPlayer;
 
@@ -265,21 +270,66 @@ export default function GamePage() {
 
       const game = gameRef.current;
 
+      // --- Handle pending push-after-jump ---
+      if (pendingPush) {
+        // Check if clicking a push target
+        const pushMatch = pendingPush.pushMoves.find((m) => {
+          const fup = m.followUpPush!;
+          const target = game.state.pieces[fup.targetId];
+          return target && target.q === q && target.r === r;
+        });
+        if (pushMatch) {
+          // Execute the jump+push combo
+          setPendingPush(null);
+          executeMove(pushMatch, game, game.state);
+          return;
+        }
+        // Clicking elsewhere — execute base jump without push
+        setPendingPush(null);
+        executeMove(pendingPush.baseMove, game, game.state);
+        return;
+      }
+
       // Check if clicking a valid move destination (including deploy targets)
-      // Prefer more impactful moves: follow-up push > chain push > simple push
+      // For jumps with push options: prefer the base jump (no followUpPush)
+      // so we can enter pending push mode
       const matchingMoves = validMoves.filter(
         (m) => m.destQ === q && m.destR === r
       );
-      const clickedMove = matchingMoves.length > 1
-        ? matchingMoves.sort((a, b) => {
-            const scoreA = (a.followUpPush ? 4 : 0) + (a.chainPushIds && a.chainPushIds.length > 1 ? 2 : 0);
-            const scoreB = (b.followUpPush ? 4 : 0) + (b.chainPushIds && b.chainPushIds.length > 1 ? 2 : 0);
+      // Separate base moves from follow-up push variants
+      const baseMoves = matchingMoves.filter((m) => !m.followUpPush);
+      const pushVariants = matchingMoves.filter((m) => !!m.followUpPush);
+
+      // Pick the best base move (prefer chain push over simple push)
+      const clickedMove = baseMoves.length > 1
+        ? baseMoves.sort((a, b) => {
+            const scoreA = (a.chainPushIds && a.chainPushIds.length > 1 ? 2 : 0);
+            const scoreB = (b.chainPushIds && b.chainPushIds.length > 1 ? 2 : 0);
             return scoreB - scoreA;
           })[0]
-        : matchingMoves[0];
+        : baseMoves[0];
+
       if (clickedMove) {
         setDeployMode(false);
+        // If this is a jump/chain_jump and push variants exist, enter pending push mode
+        if (
+          (clickedMove.type === "JUMP" || clickedMove.type === "CHAIN_JUMP") &&
+          !clickedMove.sacrifice &&
+          pushVariants.length > 0
+        ) {
+          setPendingPush({ baseMove: clickedMove, pushMoves: pushVariants });
+          setSelectedPieceId(null);
+          setValidMoves([]);
+          setMessage("Click an adjacent enemy to PUSH, or click elsewhere to skip.");
+          return;
+        }
         executeMove(clickedMove, game, game.state);
+        return;
+      }
+      // If only push variants matched (no base move), just execute the first
+      if (pushVariants.length > 0 && baseMoves.length === 0) {
+        setDeployMode(false);
+        executeMove(pushVariants[0], game, game.state);
         return;
       }
 
@@ -385,6 +435,7 @@ export default function GamePage() {
     setSelectedPieceId(null);
     setValidMoves([]);
     setDeployMode(false);
+    setPendingPush(null);
     aiThinking.current = false;
     setMessage(`New game! ${playerName(0)}'s turn.`);
     setState({ ...game.state });
@@ -400,6 +451,7 @@ export default function GamePage() {
       setSelectedPieceId(null);
       setValidMoves([]);
       setDeployMode(false);
+      setPendingPush(null);
       aiThinking.current = false;
       setMessage(`Settings applied! ${playerName(0)}'s turn.`);
       setState({ ...game.state });
@@ -483,7 +535,17 @@ export default function GamePage() {
         <div className="bg-[#16213e] border-2 border-[#333] rounded-xl p-4">
           <HexBoard
             pieces={state.pieces}
-            validMoves={validMoves}
+            validMoves={pendingPush
+              ? pendingPush.pushMoves.reduce<Move[]>((acc, m) => {
+                  const fup = m.followUpPush!;
+                  const target = state.pieces[fup.targetId];
+                  if (target) {
+                    acc.push({ type: "PUSH", pieceId: m.pieceId, destQ: target.q, destR: target.r, targetId: fup.targetId, pushDest: fup.pushDest });
+                  }
+                  return acc;
+                }, [])
+              : validMoves
+            }
             selectedPieceId={selectedPieceId}
             currentPlayer={state.currentPlayer}
             isInteractive={!isAI(state.currentPlayer) && state.winner === null && !animating.current}

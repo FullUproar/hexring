@@ -326,7 +326,7 @@ export default function GamePage() {
       setValidMoves([]);
       setMessage(`${playerName(state.currentPlayer)}: select a piece.`);
     },
-    [state, validMoves, isAI, executeMove, playerName]
+    [state, validMoves, isAI, executeMove, playerName, config]
   );
 
   // --- Deploy mode ---

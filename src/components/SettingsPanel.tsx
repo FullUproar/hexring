@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { GameConfig, WinCondition, StartLayout } from "@/lib/engine";
+import type { GameConfig, WinCondition, StartLayout, TileType } from "@/lib/engine";
 import { DEFAULT_CONFIG } from "@/lib/engine";
+import BoardEditor from "./BoardEditor";
 
 interface SettingsPanelProps {
   config: GameConfig;
@@ -62,6 +63,8 @@ function Toggle({
 export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<GameConfig>({ ...config });
+  const [useCustomBoard, setUseCustomBoard] = useState(!!config.customTiles);
+  const [customTiles, setCustomTiles] = useState<Record<string, TileType>>(config.customTiles ?? {});
 
   const set = <K extends keyof GameConfig>(key: K, val: GameConfig[K]) =>
     setDraft((d) => ({ ...d, [key]: val }));
@@ -71,6 +74,8 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
       <button
         onClick={() => {
           setDraft({ ...config });
+          setUseCustomBoard(!!config.customTiles);
+          setCustomTiles(config.customTiles ?? {});
           setOpen(true);
         }}
         className="w-full py-2 text-sm cursor-pointer border-2 border-[#555] rounded-md bg-[#1a1a2e] text-gray-400 hover:bg-[#2d3a5c] hover:border-gray-400 hover:text-gray-200 transition-all"
@@ -84,49 +89,75 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
     <div className="bg-[#16213e] border-2 border-[#555] rounded-xl p-4 space-y-3">
       <div className="text-sm font-bold text-gray-300 mb-2">Game Settings</div>
 
-      {/* Board geometry */}
+      {/* Board mode toggle */}
       <div className="text-xs text-gray-500 uppercase tracking-wider">
         Board
       </div>
-      <NumberInput
-        label="Board radius"
-        value={draft.boardRadius}
-        min={2}
-        max={8}
-        onChange={(v) => set("boardRadius", v)}
+      <Toggle
+        label="Custom board designer"
+        checked={useCustomBoard}
+        onChange={(v) => setUseCustomBoard(v)}
       />
-      <NumberInput
-        label="Killbox radius"
-        value={draft.killboxRadius}
-        min={0}
-        max={draft.boardRadius - 1}
-        onChange={(v) => set("killboxRadius", v)}
-      />
-      <NumberInput
-        label="Fortress ring"
-        value={draft.fortressRing}
-        min={0}
-        max={draft.boardRadius - 1}
-        onChange={(v) => set("fortressRing", v)}
-      />
-      <NumberInput
-        label="Pieces per player"
-        value={draft.piecesPerPlayer}
-        min={1}
-        max={12}
-        onChange={(v) => set("piecesPerPlayer", v)}
-      />
-      <label className="flex items-center justify-between gap-2 text-sm">
-        <span className="text-gray-300">Start layout</span>
-        <select
-          value={draft.startLayout}
-          onChange={(e) => set("startLayout", e.target.value as StartLayout)}
-          className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5 text-xs"
-        >
-          <option value="clustered">Clustered (grouped)</option>
-          <option value="spread">Spread (interleaved)</option>
-        </select>
-      </label>
+
+      {useCustomBoard ? (
+        <>
+          <NumberInput
+            label="Editor grid size"
+            value={draft.boardRadius}
+            min={2}
+            max={8}
+            onChange={(v) => set("boardRadius", v)}
+          />
+          <BoardEditor
+            tiles={customTiles}
+            onChange={setCustomTiles}
+            editorRadius={draft.boardRadius}
+          />
+        </>
+      ) : (
+        <>
+          {/* Standard board geometry */}
+          <NumberInput
+            label="Board radius"
+            value={draft.boardRadius}
+            min={2}
+            max={8}
+            onChange={(v) => set("boardRadius", v)}
+          />
+          <NumberInput
+            label="Killbox radius"
+            value={draft.killboxRadius}
+            min={0}
+            max={draft.boardRadius - 1}
+            onChange={(v) => set("killboxRadius", v)}
+          />
+          <NumberInput
+            label="Fortress ring"
+            value={draft.fortressRing}
+            min={0}
+            max={draft.boardRadius - 1}
+            onChange={(v) => set("fortressRing", v)}
+          />
+          <NumberInput
+            label="Pieces per player"
+            value={draft.piecesPerPlayer}
+            min={1}
+            max={12}
+            onChange={(v) => set("piecesPerPlayer", v)}
+          />
+          <label className="flex items-center justify-between gap-2 text-sm">
+            <span className="text-gray-300">Start layout</span>
+            <select
+              value={draft.startLayout}
+              onChange={(e) => set("startLayout", e.target.value as StartLayout)}
+              className="bg-[#1a1a2e] text-gray-200 border border-[#555] rounded px-1 py-0.5 text-xs"
+            >
+              <option value="clustered">Clustered (grouped)</option>
+              <option value="spread">Spread (interleaved)</option>
+            </select>
+          </label>
+        </>
+      )}
 
       {/* Win condition */}
       <div className="text-xs text-gray-500 uppercase tracking-wider mt-2">
@@ -250,27 +281,45 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
       )}
 
       {/* Deploy / Reinforcement */}
-      <div className="text-xs text-gray-500 uppercase tracking-wider mt-2">
-        Reinforcements
-      </div>
-      <Toggle
-        label="Deploy enabled"
-        checked={draft.deployEnabled}
-        onChange={(v) => set("deployEnabled", v)}
-      />
-      {draft.deployEnabled && (
+      {!useCustomBoard && (
         <>
-          <NumberInput
-            label="Deploy zone (ring)"
-            value={draft.deployZone}
-            min={0}
-            max={draft.boardRadius}
-            onChange={(v) => set("deployZone", v)}
+          <div className="text-xs text-gray-500 uppercase tracking-wider mt-2">
+            Reinforcements
+          </div>
+          <Toggle
+            label="Deploy enabled"
+            checked={draft.deployEnabled}
+            onChange={(v) => set("deployEnabled", v)}
           />
+          {draft.deployEnabled && (
+            <>
+              <NumberInput
+                label="Deploy zone (ring)"
+                value={draft.deployZone}
+                min={0}
+                max={draft.boardRadius}
+                onChange={(v) => set("deployZone", v)}
+              />
+              <NumberInput
+                label="Reserve pieces"
+                value={draft.reservePieces}
+                min={1}
+                max={12}
+                onChange={(v) => set("reservePieces", v)}
+              />
+            </>
+          )}
+        </>
+      )}
+      {useCustomBoard && (
+        <>
+          <div className="text-xs text-gray-500 uppercase tracking-wider mt-2">
+            Reinforcements
+          </div>
           <NumberInput
             label="Reserve pieces"
             value={draft.reservePieces}
-            min={1}
+            min={0}
             max={12}
             onChange={(v) => set("reservePieces", v)}
           />
@@ -281,7 +330,10 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
       <div className="flex gap-2 pt-2">
         <button
           onClick={() => {
-            onApply(draft);
+            const applied = useCustomBoard
+              ? { ...draft, customTiles: Object.keys(customTiles).length > 0 ? customTiles : undefined }
+              : { ...draft, customTiles: undefined };
+            onApply(applied);
             setOpen(false);
           }}
           className="flex-1 py-2 text-sm cursor-pointer border-2 border-emerald-700 rounded-md bg-[#1a1a2e] text-emerald-400 hover:bg-emerald-900/30 hover:border-emerald-500 transition-all"
@@ -291,6 +343,8 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
         <button
           onClick={() => {
             setDraft({ ...DEFAULT_CONFIG });
+            setUseCustomBoard(false);
+            setCustomTiles({});
           }}
           className="py-2 px-3 text-sm cursor-pointer border-2 border-[#555] rounded-md bg-[#1a1a2e] text-gray-400 hover:bg-[#2d3a5c] hover:border-gray-400 transition-all"
         >

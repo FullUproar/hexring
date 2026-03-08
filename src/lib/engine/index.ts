@@ -20,6 +20,7 @@ export type {
   Winner,
   WinCondition,
   StartLayout,
+  TileType,
   GameState,
   GameConfig,
 } from "./types";

@@ -40,9 +40,22 @@ export default function HexBoard({
   config = DEFAULT_CONFIG,
   animOverride = null,
 }: HexBoardProps) {
-  const HEX_SIZE = config.boardRadius <= 3 ? 40 : config.boardRadius <= 5 ? 30 : 22;
-  const WIDTH = HEX_SIZE * (config.boardRadius * 2 + 1) * 2 + 40;
-  const HEIGHT = HEX_SIZE * (config.boardRadius * 2 + 1) * 1.8 + 40;
+  // Compute effective radius for viewport sizing
+  const effectiveRadius = useMemo(() => {
+    if (config.customTiles) {
+      let maxR = 1;
+      for (const key of Object.keys(config.customTiles)) {
+        const { q, r } = parseKey(key);
+        maxR = Math.max(maxR, Math.abs(q), Math.abs(r), Math.abs(q + r));
+      }
+      return maxR;
+    }
+    return config.boardRadius;
+  }, [config.customTiles, config.boardRadius]);
+
+  const HEX_SIZE = effectiveRadius <= 3 ? 40 : effectiveRadius <= 5 ? 30 : 22;
+  const WIDTH = HEX_SIZE * (effectiveRadius * 2 + 1) * 2 + 40;
+  const HEIGHT = HEX_SIZE * (effectiveRadius * 2 + 1) * 1.8 + 40;
 
   const handleClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
@@ -57,60 +70,68 @@ export default function HexBoard({
     [onHexClick, WIDTH, HEIGHT, HEX_SIZE]
   );
 
-  const boardCells = useMemo(() => hexDisk(config.boardRadius), [config.boardRadius]);
-  const killboxCells = useMemo(() => hexDisk(config.killboxRadius), [config.killboxRadius]);
-  const fortressCells = useMemo(
-    () => new Set(hexRing(config.fortressRing).map((h) => hexKey(h.q, h.r))),
-    [config.fortressRing]
-  );
-  const deployZones = useMemo(() => {
-    if (!config.deployEnabled) return { red: new Set<string>(), blue: new Set<string>() };
-    const dRing = hexRing(config.deployZone);
-    const dHalf = Math.floor(dRing.length / 2);
-    const red = new Set<string>();
-    const blue = new Set<string>();
-    for (let i = 0; i < dRing.length; i++) {
-      const key = hexKey(dRing[i].q, dRing[i].r);
-      if (i < dHalf) red.add(key);
-      else blue.add(key);
-    }
-    return { red, blue };
-  }, [config.deployEnabled, config.deployZone]);
+  // --- Derive cell sets from custom tiles OR radius-based config ---
+  const { cells, killboxList, fortressList, deployZoneList } = useMemo(() => {
+    const cellList: { q: number; r: number; fill: string; stroke: string }[] = [];
+    const kbList: { q: number; r: number }[] = [];
+    const ftList: { q: number; r: number }[] = [];
+    const dzList: { q: number; r: number; player: number }[] = [];
 
-  const cells = useMemo(() => {
-    const result: { q: number; r: number; fill: string; stroke: string }[] = [];
-    for (const ck of boardCells) {
-      const { q, r } = parseKey(ck);
-      const isKillbox = killboxCells.has(ck);
-      const isFortress = fortressCells.has(ck);
-      const isRedDeploy = deployZones.red.has(ck);
-      const isBlueDeploy = deployZones.blue.has(ck);
-      let fill = "#2a2a3e";
-      let stroke = "#444";
-      if (isKillbox) { fill = "#0d0d1a"; stroke = "#333"; }
-      else if (isFortress) { fill = "#5c4d3a"; stroke = "#8B7355"; }
-      else if (isRedDeploy) { fill = "#2e1a1a"; stroke = "#6b2d2d"; }
-      else if (isBlueDeploy) { fill = "#1a1a2e"; stroke = "#2d2d6b"; }
-      result.push({ q, r, fill, stroke });
-    }
-    return result;
-  }, [boardCells, killboxCells, fortressCells, deployZones]);
+    if (config.customTiles) {
+      for (const [key, type] of Object.entries(config.customTiles)) {
+        const { q, r } = parseKey(key);
+        let fill = "#2a2a3e";
+        let stroke = "#444";
+        if (type === "killbox") { fill = "#0d0d1a"; stroke = "#333"; kbList.push({ q, r }); }
+        else if (type === "fortress") { fill = "#5c4d3a"; stroke = "#8B7355"; ftList.push({ q, r }); }
+        else if (type === "deploy0") { fill = "#2e1a1a"; stroke = "#6b2d2d"; dzList.push({ q, r, player: 0 }); }
+        else if (type === "deploy1") { fill = "#1a1a2e"; stroke = "#2d2d6b"; dzList.push({ q, r, player: 1 }); }
+        else if (type === "start0") { fill = "#3d1a1a"; stroke = "#e74c3c"; }
+        else if (type === "start1") { fill = "#1a1a3d"; stroke = "#3498db"; }
+        cellList.push({ q, r, fill, stroke });
+      }
+    } else {
+      const boardCells = hexDisk(config.boardRadius);
+      const killboxCells = hexDisk(config.killboxRadius);
+      const fortressCells = new Set(hexRing(config.fortressRing).map((h) => hexKey(h.q, h.r)));
+      const redDeploy = new Set<string>();
+      const blueDeploy = new Set<string>();
+      if (config.deployEnabled) {
+        const dRing = hexRing(config.deployZone);
+        const dHalf = Math.floor(dRing.length / 2);
+        for (let i = 0; i < dRing.length; i++) {
+          const key = hexKey(dRing[i].q, dRing[i].r);
+          if (i < dHalf) redDeploy.add(key);
+          else blueDeploy.add(key);
+        }
+      }
 
-  const killboxList = useMemo(() => {
-    const result: { q: number; r: number }[] = [];
-    for (const ck of killboxCells) {
-      result.push(parseKey(ck));
-    }
-    return result;
-  }, [killboxCells]);
+      for (const ck of boardCells) {
+        const { q, r } = parseKey(ck);
+        let fill = "#2a2a3e";
+        let stroke = "#444";
+        if (killboxCells.has(ck)) { fill = "#0d0d1a"; stroke = "#333"; kbList.push({ q, r }); }
+        else if (fortressCells.has(ck)) { fill = "#5c4d3a"; stroke = "#8B7355"; }
+        else if (redDeploy.has(ck)) { fill = "#2e1a1a"; stroke = "#6b2d2d"; }
+        else if (blueDeploy.has(ck)) { fill = "#1a1a2e"; stroke = "#2d2d6b"; }
+        cellList.push({ q, r, fill, stroke });
+      }
 
-  const fortressList = useMemo(() => hexRing(config.fortressRing), [config.fortressRing]);
-  const deployZoneList = useMemo(() => {
-    if (!config.deployEnabled) return [];
-    const dRing = hexRing(config.deployZone);
-    const dHalf = Math.floor(dRing.length / 2);
-    return dRing.map((h, i) => ({ ...h, player: i < dHalf ? 0 : 1 }));
-  }, [config.deployEnabled, config.deployZone]);
+      // Fortress and deploy icons (separate lists for icon rendering)
+      for (const h of hexRing(config.fortressRing)) {
+        if (!killboxCells.has(hexKey(h.q, h.r))) ftList.push(h);
+      }
+      if (config.deployEnabled) {
+        const dRing = hexRing(config.deployZone);
+        const dHalf = Math.floor(dRing.length / 2);
+        for (let i = 0; i < dRing.length; i++) {
+          dzList.push({ ...dRing[i], player: i < dHalf ? 0 : 1 });
+        }
+      }
+    }
+
+    return { cells: cellList, killboxList: kbList, fortressList: ftList, deployZoneList: dzList };
+  }, [config]);
 
   return (
     <svg

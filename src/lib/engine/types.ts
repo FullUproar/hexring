@@ -64,6 +64,7 @@ export interface GameState {
 
 export type WinCondition = "first_to_kills" | "last_standing" | "eliminate_all";
 export type StartLayout = "clustered" | "spread";
+export type TileType = "normal" | "killbox" | "fortress" | "deploy0" | "deploy1" | "start0" | "start1";
 
 export interface GameConfig {
   // Board geometry
@@ -100,6 +101,9 @@ export interface GameConfig {
   deployEnabled: boolean;
   deployZone: number; // which ring new pieces deploy onto (0 = center)
   reservePieces: number; // how many reserve pieces each player starts with
+
+  // Custom board (overrides radius-based generation when set)
+  customTiles?: Record<string, TileType>;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {

@@ -1,6 +1,6 @@
 // Board configuration — zones and starting positions
 
-import { hexDisk, hexRing, hexKey } from "./hex";
+import { hexDisk, hexRing, hexKey, parseKey } from "./hex";
 import type { GameConfig, Hex } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
@@ -13,6 +13,41 @@ export class Board {
   readonly startPositions: [Hex[], Hex[]];
 
   constructor(config: GameConfig = DEFAULT_CONFIG) {
+    if (config.customTiles) {
+      // --- Custom board from tile map ---
+      const cells = new Set<string>();
+      const killbox = new Set<string>();
+      const fortress = new Set<string>();
+      const d0 = new Set<string>();
+      const d1 = new Set<string>();
+      const s0: Hex[] = [];
+      const s1: Hex[] = [];
+
+      for (const [key, type] of Object.entries(config.customTiles)) {
+        cells.add(key);
+        if (type === "killbox") killbox.add(key);
+        else if (type === "fortress") fortress.add(key);
+        else if (type === "deploy0") d0.add(key);
+        else if (type === "deploy1") d1.add(key);
+        else if (type === "start0") s0.push(parseKey(key));
+        else if (type === "start1") s1.push(parseKey(key));
+      }
+
+      this.cells = cells;
+      this.killbox = killbox;
+      this.fortress = fortress;
+      this.deployZone = [d0, d1];
+      this.startPositions = [s0, s1];
+      // Override piecesPerPlayer to match start tiles
+      this.config = {
+        ...config,
+        piecesPerPlayer: Math.max(s0.length, s1.length),
+        deployEnabled: d0.size > 0 || d1.size > 0,
+      };
+      return;
+    }
+
+    // --- Radius-based board ---
     this.config = config;
     this.cells = hexDisk(config.boardRadius);
     this.killbox = hexDisk(config.killboxRadius);
@@ -27,14 +62,11 @@ export class Board {
     const n = config.piecesPerPlayer;
 
     if (config.startLayout === "spread") {
-      // Spread: alternate around the ring (enemies interleaved)
       for (let i = 0; i < n; i++) {
         p0.push(ring[(i * 2) % ring.length]);
         p1.push(ring[(half + i * 2) % ring.length]);
       }
     } else {
-      // Clustered (default): each player's pieces grouped on opposite sides
-      // Center each group on their half of the ring
       const groupStart0 = Math.floor(half / 2 - n / 2);
       const groupStart1 = half + Math.floor(half / 2 - n / 2);
       for (let i = 0; i < n; i++) {
@@ -44,7 +76,7 @@ export class Board {
     }
     this.startPositions = [p0, p1];
 
-    // Deploy zones — each player deploys on their half of the deploy ring
+    // Deploy zones
     if (config.deployEnabled) {
       const dRing = hexRing(config.deployZone);
       const dHalf = Math.floor(dRing.length / 2);

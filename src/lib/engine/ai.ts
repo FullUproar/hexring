@@ -29,9 +29,66 @@ export function aiChooseMove(
     return moves[Math.floor(Math.random() * moves.length)];
   }
 
-  // Level 2+: minimax
-  const depth = DEPTH_BY_LEVEL[difficulty];
   const aiPlayer = state.currentPlayer;
+
+  // --- Tactical override (difficulty 3+): instant win / loss detection ---
+  if (difficulty >= 3) {
+    // 1. Check for instant wins — take them immediately, no softmax
+    const winningMoves: Move[] = [];
+    for (const m of moves) {
+      const snap = game.snapshot(state);
+      game.applyMove(state, m);
+      const w = game.checkWinner(state);
+      restoreState(state, snap);
+      if (w === aiPlayer) winningMoves.push(m);
+    }
+    if (winningMoves.length) {
+      return winningMoves[Math.floor(Math.random() * winningMoves.length)];
+    }
+
+    // 2. Check if opponent has an instant win next turn — avoid moves that allow it
+    // For each of our moves, simulate it, then check if opponent can win
+    const opp = (1 - aiPlayer) as 0 | 1;
+    const safeFlags: boolean[] = [];
+    for (const m of moves) {
+      const snap = game.snapshot(state);
+      game.applyMove(state, m);
+      // Switch to opponent's turn to check their responses
+      state.currentPlayer = opp;
+      const oppMoves = game.allMoves(state, opp);
+      let oppCanWin = false;
+      for (const om of oppMoves) {
+        const snap2 = game.snapshot(state);
+        game.applyMove(state, om);
+        if (game.checkWinner(state) === opp) oppCanWin = true;
+        restoreState(state, snap2);
+        if (oppCanWin) break;
+      }
+      restoreState(state, snap);
+      safeFlags.push(!oppCanWin);
+    }
+    // If some moves are safe and some aren't, filter to only safe moves
+    const hasSafe = safeFlags.some((s) => s);
+    const hasUnsafe = safeFlags.some((s) => !s);
+    if (hasSafe && hasUnsafe) {
+      // Remove unsafe moves from consideration
+      const safeMoves = moves.filter((_, i) => safeFlags[i]);
+      // Continue to minimax with only safe moves
+      return aiMinimaxPick(game, state, safeMoves, difficulty, aiPlayer);
+    }
+  }
+
+  return aiMinimaxPick(game, state, moves, difficulty, aiPlayer);
+}
+
+function aiMinimaxPick(
+  game: Game,
+  state: GameState,
+  moves: Move[],
+  difficulty: AIDifficulty,
+  aiPlayer: 0 | 1
+): Move | null {
+  const depth = DEPTH_BY_LEVEL[difficulty];
 
   orderMoves(moves);
 

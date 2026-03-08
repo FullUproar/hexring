@@ -12,7 +12,7 @@ export interface Piece {
   r: number;
 }
 
-export type MoveType = "MOVE" | "PUSH" | "JUMP" | "CHAIN_JUMP";
+export type MoveType = "MOVE" | "PUSH" | "JUMP" | "CHAIN_JUMP" | "DEPLOY";
 
 export interface ChainHop {
   q: number;
@@ -49,6 +49,8 @@ export interface GameState {
   winReason?: string;
   positionHistory: Record<string, number>;
   turnCount: number;
+  reservePieces: [number, number]; // undeployed pieces per player
+  totalDeployed: [number, number]; // how many pieces each player has deployed from reserve
 }
 
 export type WinCondition = "first_to_kills" | "last_standing" | "eliminate_all";
@@ -82,6 +84,11 @@ export interface GameConfig {
   captureOnJump: boolean;
   threefoldRepetition: boolean;
   turnLimit: number; // 0 = no limit
+
+  // Deploy / reinforcement
+  deployEnabled: boolean;
+  deployZone: number; // which ring new pieces deploy onto (0 = center)
+  reservePieces: number; // how many reserve pieces each player starts with
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -105,4 +112,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   captureOnJump: true,
   threefoldRepetition: true,
   turnLimit: 0,
+  deployEnabled: false,
+  deployZone: 3,
+  reservePieces: 0,
 };

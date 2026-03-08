@@ -52,6 +52,7 @@ export default function GamePage() {
     [isAI]
   );
 
+  const [deployMode, setDeployMode] = useState(false);
   const killTarget = config.killTarget;
   const piecesPerPlayer = config.piecesPerPlayer;
 
@@ -61,8 +62,10 @@ export default function GamePage() {
   const blueCount = Object.values(state.pieces).filter(
     (p) => p.player === 1
   ).length;
-  const redKills = piecesPerPlayer - blueCount;
-  const blueKills = piecesPerPlayer - redCount;
+  const redTotalDeployed = state.totalDeployed?.[0] ?? 0;
+  const blueTotalDeployed = state.totalDeployed?.[1] ?? 0;
+  const redKills = (piecesPerPlayer + blueTotalDeployed) - blueCount;
+  const blueKills = (piecesPerPlayer + redTotalDeployed) - redCount;
 
   // --- Finalize a move (apply game state, update messages) ---
   const finishMove = useCallback(
@@ -124,6 +127,8 @@ export default function GamePage() {
       } else if (move.type === "CHAIN_JUMP") {
         desc = `${name} CHAIN JUMPS (${move.chainTargets!.length} hops)`;
         if (move.enemyKills) desc += ` — ${move.enemyKills} CAPTURED!`;
+      } else if (move.type === "DEPLOY") {
+        desc = `${name} DEPLOYS reinforcement to (${move.destQ},${move.destR})`;
       }
 
       setSelectedPieceId(null);
@@ -204,20 +209,22 @@ export default function GamePage() {
 
       const game = gameRef.current;
 
-      // Check if clicking a valid move destination
+      // Check if clicking a valid move destination (including deploy targets)
       const clickedMove = validMoves.find(
         (m) => m.destQ === q && m.destR === r
       );
       if (clickedMove) {
+        setDeployMode(false);
         executeMove(clickedMove, game, game.state);
         return;
       }
 
-      // Check if clicking own piece
+      // Check if clicking own piece (exit deploy mode)
       const clickedPiece = Object.values(state.pieces).find(
         (p) => p.q === q && p.r === r && p.player === state.currentPlayer
       );
       if (clickedPiece) {
+        setDeployMode(false);
         setSelectedPieceId(clickedPiece.id);
         const moves = game.genMoves(game.state, clickedPiece);
         setValidMoves(moves);
@@ -235,12 +242,30 @@ export default function GamePage() {
       }
 
       // Deselect
+      setDeployMode(false);
       setSelectedPieceId(null);
       setValidMoves([]);
       setMessage(`${playerName(state.currentPlayer)}: select a piece.`);
     },
     [state, validMoves, isAI, executeMove, playerName]
   );
+
+  // --- Deploy mode ---
+  const handleDeployClick = useCallback(() => {
+    if (state.winner !== null) return;
+    if (isAI(state.currentPlayer)) return;
+    if (animating.current) return;
+
+    const game = gameRef.current;
+    const allM = game.allMoves(game.state);
+    const deployMoves = allM.filter((m) => m.type === "DEPLOY");
+    if (!deployMoves.length) return;
+
+    setDeployMode(true);
+    setSelectedPieceId(null);
+    setValidMoves(deployMoves);
+    setMessage(`Select a deploy zone hex to place a reinforcement.`);
+  }, [state, isAI]);
 
   // --- Undo ---
   const handleUndo = useCallback(() => {
@@ -280,6 +305,7 @@ export default function GamePage() {
     setHistory([]);
     setSelectedPieceId(null);
     setValidMoves([]);
+    setDeployMode(false);
     aiThinking.current = false;
     setMessage(`New game! ${playerName(0)}'s turn.`);
     setState({ ...game.state });
@@ -294,6 +320,7 @@ export default function GamePage() {
       setHistory([]);
       setSelectedPieceId(null);
       setValidMoves([]);
+      setDeployMode(false);
       aiThinking.current = false;
       setMessage(`Settings applied! ${playerName(0)}'s turn.`);
       setState({ ...game.state });
@@ -456,6 +483,11 @@ export default function GamePage() {
               <div className="text-xs text-gray-500">
                 {redKills}/{killTarget} kills
               </div>
+              {config.deployEnabled && (
+                <div className="text-xs text-cyan-400 mt-0.5">
+                  +{state.reservePieces?.[0] ?? 0} reserve
+                </div>
+              )}
             </div>
             <div className="text-2xl text-gray-600 self-center">vs</div>
             <div className="text-center">
@@ -468,6 +500,11 @@ export default function GamePage() {
               <div className="text-xs text-gray-500">
                 {blueKills}/{killTarget} kills
               </div>
+              {config.deployEnabled && (
+                <div className="text-xs text-cyan-400 mt-0.5">
+                  +{state.reservePieces?.[1] ?? 0} reserve
+                </div>
+              )}
             </div>
           </div>
 
@@ -494,6 +531,18 @@ export default function GamePage() {
               Undo
             </button>
           </div>
+          {config.deployEnabled && !isAI(state.currentPlayer) && state.winner === null && (state.reservePieces?.[state.currentPlayer] ?? 0) > 0 && (
+            <button
+              onClick={handleDeployClick}
+              className={`w-full py-2 text-sm cursor-pointer border-2 rounded-md transition-all ${
+                deployMode
+                  ? "border-cyan-400 bg-cyan-900/30 text-cyan-300"
+                  : "border-cyan-700 bg-[#1a1a2e] text-cyan-400 hover:bg-cyan-900/20 hover:border-cyan-500"
+              }`}
+            >
+              Deploy Reinforcement ({state.reservePieces?.[state.currentPlayer] ?? 0} left)
+            </button>
+          )}
           <a
             href={`/play/${Math.random().toString(36).slice(2, 8)}`}
             className="w-full py-2.5 text-base text-center cursor-pointer border-2 border-emerald-700 rounded-md bg-[#1a1a2e] text-emerald-400 hover:bg-emerald-900/30 hover:border-emerald-500 transition-all block"
@@ -513,6 +562,13 @@ export default function GamePage() {
             Killbox (death){" "}
             <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#5c4d3a] mr-1 align-middle" />{" "}
             Fortress (no push)
+            {config.deployEnabled && (
+              <>
+                {" "}
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1a3a2e] border border-[#2d6b4a] mr-1 align-middle" />{" "}
+                Deploy zone
+              </>
+            )}
             <br />
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#4f4] mr-1 align-middle" />{" "}
             Move{" "}
@@ -522,6 +578,13 @@ export default function GamePage() {
             Capture{" "}
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#f0f] mr-1 align-middle" />{" "}
             Chain
+            {config.deployEnabled && (
+              <>
+                {" "}
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#0cf] mr-1 align-middle" />{" "}
+                Deploy
+              </>
+            )}
             <br />
             {config.winCondition === "first_to_kills"
               ? `First to ${killTarget} kills wins!`

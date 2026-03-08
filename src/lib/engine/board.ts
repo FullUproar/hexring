@@ -9,6 +9,7 @@ export class Board {
   readonly cells: Set<string>;
   readonly killbox: Set<string>;
   readonly fortress: Set<string>;
+  readonly deployZone: Set<string>;
   readonly startPositions: [Hex[], Hex[]];
 
   constructor(config: GameConfig = DEFAULT_CONFIG) {
@@ -18,6 +19,9 @@ export class Board {
     this.fortress = new Set(
       hexRing(config.fortressRing).map((h) => hexKey(h.q, h.r))
     );
+    this.deployZone = config.deployEnabled
+      ? new Set(hexRing(config.deployZone).map((h) => hexKey(h.q, h.r)))
+      : new Set();
 
     // Starting positions
     const ring = hexRing(config.boardRadius);
@@ -55,5 +59,9 @@ export class Board {
 
   isFortress(q: number, r: number): boolean {
     return this.fortress.has(hexKey(q, r));
+  }
+
+  isDeployZone(q: number, r: number): boolean {
+    return this.deployZone.has(hexKey(q, r));
   }
 }

@@ -63,6 +63,10 @@ export default function HexBoard({
     () => new Set(hexRing(config.fortressRing).map((h) => hexKey(h.q, h.r))),
     [config.fortressRing]
   );
+  const deployZoneCells = useMemo(
+    () => config.deployEnabled ? new Set(hexRing(config.deployZone).map((h) => hexKey(h.q, h.r))) : new Set<string>(),
+    [config.deployEnabled, config.deployZone]
+  );
 
   const cells = useMemo(() => {
     const result: { q: number; r: number; fill: string; stroke: string }[] = [];
@@ -70,15 +74,16 @@ export default function HexBoard({
       const { q, r } = parseKey(ck);
       const isKillbox = killboxCells.has(ck);
       const isFortress = fortressCells.has(ck);
+      const isDeploy = deployZoneCells.has(ck);
       result.push({
         q,
         r,
-        fill: isKillbox ? "#0d0d1a" : isFortress ? "#5c4d3a" : "#2a2a3e",
-        stroke: isKillbox ? "#333" : isFortress ? "#8B7355" : "#444",
+        fill: isKillbox ? "#0d0d1a" : isFortress ? "#5c4d3a" : isDeploy ? "#1a3a2e" : "#2a2a3e",
+        stroke: isKillbox ? "#333" : isFortress ? "#8B7355" : isDeploy ? "#2d6b4a" : "#444",
       });
     }
     return result;
-  }, [boardCells, killboxCells, fortressCells]);
+  }, [boardCells, killboxCells, fortressCells, deployZoneCells]);
 
   const killboxList = useMemo(() => {
     const result: { q: number; r: number }[] = [];
@@ -89,6 +94,10 @@ export default function HexBoard({
   }, [killboxCells]);
 
   const fortressList = useMemo(() => hexRing(config.fortressRing), [config.fortressRing]);
+  const deployZoneList = useMemo(
+    () => config.deployEnabled ? hexRing(config.deployZone) : [],
+    [config.deployEnabled, config.deployZone]
+  );
 
   return (
     <svg
@@ -146,6 +155,25 @@ export default function HexBoard({
         );
       })}
 
+      {/* Deploy zone icons */}
+      {deployZoneList.map(({ q, r }) => {
+        const [cx, cy] = hexToPixel(q, r, HEX_SIZE);
+        return (
+          <text
+            key={`deploy-${q},${r}`}
+            x={cx}
+            y={cy + 1}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="10"
+            fill="#3d8b5a"
+            opacity="0.6"
+          >
+            +
+          </text>
+        );
+      })}
+
       {/* Valid move indicators */}
       {validMoves.map((m, i) => {
         const [cx, cy] = hexToPixel(m.destQ, m.destR, HEX_SIZE);
@@ -158,6 +186,8 @@ export default function HexBoard({
           color = "#4f4";
         } else if (m.type === "PUSH") {
           color = "#f90";
+        } else if (m.type === "DEPLOY") {
+          color = "#0cf";
         } else {
           color = "#4f4";
         }
@@ -170,6 +200,7 @@ export default function HexBoard({
             (m.enemyKills ?? 0) > 0
               ? `chain(${m.enemyKills}kill)`
               : "chain",
+          DEPLOY: "deploy",
         };
 
         return (

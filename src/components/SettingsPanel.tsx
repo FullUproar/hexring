@@ -239,6 +239,34 @@ export default function SettingsPanel({ config, onApply }: SettingsPanelProps) {
         />
       )}
 
+      {/* Deploy / Reinforcement */}
+      <div className="text-xs text-gray-500 uppercase tracking-wider mt-2">
+        Reinforcements
+      </div>
+      <Toggle
+        label="Deploy enabled"
+        checked={draft.deployEnabled}
+        onChange={(v) => set("deployEnabled", v)}
+      />
+      {draft.deployEnabled && (
+        <>
+          <NumberInput
+            label="Deploy zone (ring)"
+            value={draft.deployZone}
+            min={0}
+            max={draft.boardRadius - 1}
+            onChange={(v) => set("deployZone", v)}
+          />
+          <NumberInput
+            label="Reserve pieces"
+            value={draft.reservePieces}
+            min={1}
+            max={12}
+            onChange={(v) => set("reservePieces", v)}
+          />
+        </>
+      )}
+
       {/* Action buttons */}
       <div className="flex gap-2 pt-2">
         <button

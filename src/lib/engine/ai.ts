@@ -101,8 +101,10 @@ function drawScore(game: Game, state: GameState, aiPlayer: 0 | 1): number {
   const my = Object.values(state.pieces).filter((p) => p.player === aiPlayer).length;
   const their = Object.values(state.pieces).filter((p) => p.player === opp).length;
   const pp = game.board.config.piecesPerPlayer;
-  const myKills = pp - their;
-  const theirKills = pp - my;
+  const myTotal = pp + (state.totalDeployed?.[aiPlayer] ?? 0);
+  const theirTotal = pp + (state.totalDeployed?.[opp] ?? 0);
+  const myKills = theirTotal - their;
+  const theirKills = myTotal - my;
   // If AI is ahead on kills or pieces, draw is bad — avoid it
   if (myKills > theirKills || my > their) return -800;
   // If behind, draw is an escape
@@ -176,8 +178,10 @@ function evaluate(game: Game, state: GameState, aiPlayer: 0 | 1): number {
   const kt = game.board.config.killTarget;
 
   const pp = game.board.config.piecesPerPlayer;
-  const myLost = pp - myPieces.length;
-  const oppLost = pp - oppPieces.length;
+  const myTotal = pp + (state.totalDeployed?.[aiPlayer] ?? 0);
+  const oppTotal = pp + (state.totalDeployed?.[opp] ?? 0);
+  const myLost = myTotal - myPieces.length;
+  const oppLost = oppTotal - oppPieces.length;
 
   // Both crossed threshold — compare piece counts
   if (myLost >= kt && oppLost >= kt) {
@@ -215,6 +219,17 @@ function evaluate(game: Game, state: GameState, aiPlayer: 0 | 1): number {
     // Opponent's urgency for their threats
     const theirUrgency = Math.max(0, 1 - (theirKillsNeeded - 1) / Math.max(kt, 1));
     score -= evalPiecePosition(game, state, p, aiPlayer, oppPieces, myPieces, theirUrgency);
+  }
+
+  // Reserve pieces bonus — having reinforcements available is valuable
+  if (game.board.config.deployEnabled) {
+    const myReserve = state.reservePieces?.[aiPlayer] ?? 0;
+    const oppReserve = state.reservePieces?.[opp] ?? 0;
+    // Small bonus for having reserves (potential future pieces)
+    score += myReserve * 30;
+    score -= oppReserve * 30;
+    // Encourage deploying when low on pieces (fewer than 3 on board)
+    if (myPieces.length < 3 && myReserve > 0) score -= 50; // penalty for not deploying
   }
 
   return score;
@@ -346,6 +361,7 @@ function moveOrderScore(m: Move): number {
   if (m.type === "CHAIN_JUMP") return (m.enemyKills || 0) * 3 + (m.sacrifice ? -1 : 0);
   if (m.type === "JUMP" && m.isCapture) return 2 + (m.sacrifice ? -1 : 0);
   if (m.type === "PUSH") return 2; // pushes are kills (off-board/killbox) — prioritize them
+  if (m.type === "DEPLOY") return 1; // deploying is useful but not as urgent as captures
   if (m.type === "JUMP") return 0;
   return 0;
 }
@@ -365,4 +381,6 @@ function restoreState(state: GameState, snap: GameState): void {
   state.winner = snap.winner;
   state.positionHistory = { ...snap.positionHistory };
   state.turnCount = snap.turnCount;
+  state.reservePieces = [...snap.reservePieces] as [number, number];
+  state.totalDeployed = [...snap.totalDeployed] as [number, number];
 }

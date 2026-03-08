@@ -1,6 +1,6 @@
 // Core game logic: state management, move generation, move application
 
-import { DIRS, hexKey } from "./hex";
+import { DIRS, hexKey, parseKey } from "./hex";
 import { Board } from "./board";
 import type {
   GameState,
@@ -30,6 +30,7 @@ export class Game {
         id++;
       }
     }
+    const reserve = this.board.config.deployEnabled ? this.board.config.reservePieces : 0;
     const state: GameState = {
       pieces,
       nextPieceId: id,
@@ -37,6 +38,8 @@ export class Game {
       winner: null,
       positionHistory: {},
       turnCount: 0,
+      reservePieces: [reserve, reserve],
+      totalDeployed: [0, 0],
     };
     // Record initial position
     this.recordPosition(state);
@@ -108,8 +111,11 @@ export class Game {
     }
 
     // first_to_kills (default)
-    const redLost = pp - r;
-    const blueLost = pp - b;
+    // Total pieces a player has ever had = starting + deployed from reserve
+    const redTotal = pp + (state.totalDeployed?.[0] ?? 0);
+    const blueTotal = pp + (state.totalDeployed?.[1] ?? 0);
+    const redLost = redTotal - r;
+    const blueLost = blueTotal - b;
 
     // Both eliminated enough — compare who has more
     if (redLost >= kt && blueLost >= kt) {
@@ -128,8 +134,9 @@ export class Game {
     if (repeats >= 3) {
       const r = this.pieceCount(state, 0);
       const b = this.pieceCount(state, 1);
-      const redKills = this.board.config.piecesPerPlayer - b;
-      const blueKills = this.board.config.piecesPerPlayer - r;
+      const pp = this.board.config.piecesPerPlayer;
+      const redKills = (pp + (state.totalDeployed?.[1] ?? 0)) - b;
+      const blueKills = (pp + (state.totalDeployed?.[0] ?? 0)) - r;
       if (redKills > blueKills) return 0;
       if (blueKills > redKills) return 1;
       if (r > b) return 0;
@@ -297,12 +304,41 @@ export class Game {
     for (const piece of Object.values(state.pieces)) {
       if (piece.player === p) moves.push(...this.genMoves(state, piece));
     }
+    // DEPLOY moves — place a reserve piece on an empty deploy zone hex
+    if (this.board.config.deployEnabled && state.reservePieces[p] > 0) {
+      for (const key of this.board.deployZone) {
+        const { q, r } = parseKey(key);
+        if (!this.occupied(state, q, r) && !this.board.isKillbox(q, r)) {
+          moves.push({
+            type: "DEPLOY",
+            pieceId: -1, // no existing piece
+            destQ: q,
+            destR: r,
+          });
+        }
+      }
+    }
     return moves;
   }
 
   // --- Apply move (mutates state) ---
 
   applyMove(state: GameState, move: Move): void {
+    // DEPLOY doesn't use an existing piece
+    if (move.type === "DEPLOY") {
+      const player = state.currentPlayer;
+      const id = state.nextPieceId++;
+      state.pieces[id] = {
+        id,
+        player,
+        q: move.destQ,
+        r: move.destR,
+      };
+      state.reservePieces[player]--;
+      state.totalDeployed[player]++;
+      return;
+    }
+
     const piece = state.pieces[move.pieceId];
     if (!piece) return;
 
@@ -425,6 +461,8 @@ export class Game {
       winner: state.winner,
       positionHistory: { ...state.positionHistory },
       turnCount: state.turnCount,
+      reservePieces: [...state.reservePieces] as [number, number],
+      totalDeployed: [...state.totalDeployed] as [number, number],
     };
   }
 }
